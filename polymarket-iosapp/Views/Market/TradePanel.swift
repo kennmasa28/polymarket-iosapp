@@ -2,8 +2,8 @@
 //  TradePanel.swift
 //  polymarket-iosapp
 //
-//  マーケット詳細の売買 UI。現在は `TradingService.state` が未接続のため無効表示。
-//  ウォレット接続を実装すれば、この UI のまま発注できるようになる。
+//  マーケット詳細の売買 UI。`TradingService` の状態に応じて
+//  未接続 → 設定への案内 / ロック中 → ロック解除 / 接続済み → 注文チケット を出し分ける。
 //
 
 import SwiftUI
@@ -12,6 +12,7 @@ struct OrderDraft: Identifiable {
     let id = UUID()
     let market: PMMarket
     let outcomeIndex: Int
+    var side: OrderSide = .buy
 
     var outcomeName: String { market.outcomes.indices.contains(outcomeIndex) ? market.outcomes[outcomeIndex] : "?" }
     var tokenId: String? { market.clobTokenIds.indices.contains(outcomeIndex) ? market.clobTokenIds[outcomeIndex] : nil }
@@ -22,19 +23,20 @@ struct TradePanel: View {
     let market: PMMarket
 
     @Environment(AppServices.self) private var services
+    @Environment(AppRouter.self) private var router
     @State private var draft: OrderDraft?
-
-    private var canTrade: Bool { services.trading.state.canTrade && market.isTradable }
+    @State private var errorMessage: String?
+    @State private var isUnlocking = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 ForEach(Array(market.outcomes.prefix(2).enumerated()), id: \.offset) { index, outcome in
                     Button {
-                        draft = OrderDraft(market: market, outcomeIndex: index)
+                        Task { await open(outcomeIndex: index) }
                     } label: {
                         VStack(spacing: 2) {
-                            Text("\(outcome) を買う").font(.subheadline.weight(.semibold))
+                            Text("\(outcome) を取引").font(.subheadline.weight(.semibold))
                             Text(Fmt.cents(market.outcomePrices.indices.contains(index) ? market.outcomePrices[index] : nil))
                                 .font(.caption.monospacedDigit())
                         }
@@ -45,47 +47,90 @@ struct TradePanel: View {
                     .tint(index == 0 ? .green : .red)
                 }
             }
-            .disabled(!canTrade)
+            .disabled(!market.isTradable || !services.trading.state.isConfigured || isUnlocking)
 
-            if !services.trading.state.canTrade {
-                Label("取引機能は未接続です（設定 › ウォレット）", systemImage: "lock")
+            switch services.trading.state {
+            case .notConfigured:
+                Button {
+                    router.selectedTab = .settings
+                } label: {
+                    Label("取引するには 設定 › ウォレット で接続してください", systemImage: "lock")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+            case .locked:
+                Label("ボタンを押すと Face ID / パスコードでロック解除します", systemImage: "lock")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            case .ready:
+                EmptyView()
+            }
+            if let errorMessage {
+                Text(errorMessage).font(.caption).foregroundStyle(.red)
             }
         }
         .sheet(item: $draft) { draft in
             NavigationStack { OrderTicketView(draft: draft) }
-                .presentationDetents([.medium, .large])
+                .presentationDetents([.large])
         }
+    }
+
+    private func open(outcomeIndex: Int) async {
+        if !services.trading.state.canTrade {
+            isUnlocking = true
+            defer { isUnlocking = false }
+            do {
+                try await services.trading.unlock()
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        errorMessage = nil
+        draft = OrderDraft(market: market, outcomeIndex: outcomeIndex)
     }
 }
 
-/// 発注チケット。`TradingService.placeOrder` に `OrderRequest` を渡すだけで、署名等はサービス側の責務
+/// 発注チケット。署名・送信は `TradingService.placeOrder` の責務
 struct OrderTicketView: View {
     let draft: OrderDraft
 
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
-    @State private var side: OrderSide = .buy
+    @State private var side: OrderSide
     @State private var orderType: OrderType = .gtc
     @State private var priceCents: Double
     @State private var shares: Double = 10
+    @State private var balance: Double?
     @State private var isSubmitting = false
+    @State private var showConfirmation = false
     @State private var resultMessage: String?
+    @State private var succeeded = false
 
     init(draft: OrderDraft) {
         self.draft = draft
-        _priceCents = State(initialValue: ((draft.price ?? 0.5) * 100).rounded())
+        _side = State(initialValue: draft.side)
+        _priceCents = State(initialValue: min(max(((draft.price ?? 0.5) * 100).rounded(), 1), 99))
     }
 
-    private var estimatedCost: Double { priceCents / 100 * shares }
+    private var price: Double { priceCents / 100 }
+    private var estimatedCost: Double { price * shares }
+
+    private var summary: String {
+        "\(draft.outcomeName) を \(String(format: "%.2f", shares))株 \(side.label)（\(orderType.label) \(Fmt.cents(price))、約 $\(String(format: "%.2f", estimatedCost))）"
+    }
 
     var body: some View {
         Form {
             Section {
                 Text(draft.market.question).font(.subheadline)
                 LabeledContent("アウトカム", value: draft.outcomeName)
+                LabeledContent("現在価格", value: Fmt.cents(draft.price))
+                if let balance {
+                    LabeledContent("USDC 残高", value: String(format: "$%.2f", balance))
+                }
             }
+
             Section {
                 Picker("売買", selection: $side) {
                     ForEach(OrderSide.allCases, id: \.self) { Text($0.label).tag($0) }
@@ -95,26 +140,40 @@ struct OrderTicketView: View {
                     ForEach(OrderType.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 Stepper(value: $priceCents, in: 1...99, step: 1) {
-                    LabeledContent("指値", value: "\(Int(priceCents))¢")
+                    LabeledContent(orderType == .gtc ? "指値" : (side == .buy ? "上限価格" : "下限価格")) {
+                        Text(String(format: "%.0f¢", priceCents)).monospacedDigit()
+                    }
                 }
                 LabeledContent("株数") {
                     TextField("株数", value: $shares, format: .number)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
-                LabeledContent("概算金額", value: String(format: "$%.2f", estimatedCost))
-                LabeledContent("的中時の受取", value: String(format: "$%.2f", shares))
+                LabeledContent(side == .buy ? "支払額（概算）" : "受取額（概算）", value: String(format: "$%.2f", estimatedCost))
+                if side == .buy {
+                    LabeledContent("的中時の受取", value: String(format: "$%.2f", shares))
+                }
+            } footer: {
+                Text(orderType == .gtc
+                    ? "指定価格で板に注文を出し、約定するまで残ります。"
+                    : "指定価格より不利にならない範囲で即時に全量約定させ、できなければ取り消されます。")
             }
+
             if let resultMessage {
-                Section { Text(resultMessage).font(.footnote) }
+                Section {
+                    Label(resultMessage, systemImage: succeeded ? "checkmark.circle" : "exclamationmark.triangle")
+                        .foregroundStyle(succeeded ? Color.green : Color.red)
+                        .font(.footnote)
+                }
             }
+
             Section {
                 Button {
-                    Task { await submit() }
+                    showConfirmation = true
                 } label: {
                     HStack {
                         Spacer()
-                        if isSubmitting { ProgressView() } else { Text("注文を確定") }
+                        if isSubmitting { ProgressView() } else { Text("注文内容を確認") }
                         Spacer()
                     }
                 }
@@ -126,6 +185,14 @@ struct OrderTicketView: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) { Button("閉じる") { dismiss() } }
         }
+        .confirmationDialog("この内容で注文しますか？", isPresented: $showConfirmation, titleVisibility: .visible) {
+            Button("注文する（\(side.label)）") { Task { await submit() } }
+        } message: {
+            Text(summary)
+        }
+        .task {
+            balance = try? await services.trading.collateralBalance()
+        }
     }
 
     private func submit() async {
@@ -134,9 +201,12 @@ struct OrderTicketView: View {
         defer { isSubmitting = false }
         do {
             let receipt = try await services.trading.placeOrder(OrderRequest(
-                tokenId: tokenId, side: side, price: priceCents / 100, size: shares, type: orderType))
+                tokenId: tokenId, side: side, price: price, size: shares, type: orderType))
+            succeeded = true
             resultMessage = "注文を受け付けました（\(receipt.status)）"
+            balance = try? await services.trading.collateralBalance()
         } catch {
+            succeeded = false
             resultMessage = error.localizedDescription
         }
     }

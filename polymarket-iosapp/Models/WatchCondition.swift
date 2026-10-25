@@ -121,6 +121,8 @@ nonisolated struct AppSettings: Codable, Hashable, Sendable {
     var maxEventsPerCondition = 300
     /// 1 回の巡回で参加者数を調べるマーケット数の上限（Data API 呼び出し回数）
     var maxTraderChecksPerCycle = 25
+    /// お気に入り（Apple Watch の文字盤に表示）
+    var favorites: [FavoriteMarket] = []
 
     static let pollIntervalChoices = [1, 2, 5, 10, 15, 30, 60]
 
@@ -136,5 +138,6 @@ nonisolated struct AppSettings: Codable, Hashable, Sendable {
         cooldownMinutes = (try? c.decodeIfPresent(Int.self, forKey: .cooldownMinutes)) ?? d.cooldownMinutes
         maxEventsPerCondition = (try? c.decodeIfPresent(Int.self, forKey: .maxEventsPerCondition)) ?? d.maxEventsPerCondition
         maxTraderChecksPerCycle = (try? c.decodeIfPresent(Int.self, forKey: .maxTraderChecksPerCycle)) ?? d.maxTraderChecksPerCycle
+        favorites = (try? c.decodeIfPresent([FavoriteMarket].self, forKey: .favorites)) ?? d.favorites
     }
 }

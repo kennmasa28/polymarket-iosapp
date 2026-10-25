@@ -12,6 +12,7 @@ struct MarketDetailView: View {
     let eventSlug: String?
 
     @Environment(AppServices.self) private var services
+    @Environment(SettingsStore.self) private var settings
     @State private var interval: PriceInterval = .day
     @State private var history: [PricePoint] = []
     @State private var historyError: String?
@@ -60,6 +61,17 @@ struct MarketDetailView: View {
         }
         .navigationTitle(market.displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                let isFavorite = settings.isFavorite(marketId: market.id)
+                Button {
+                    settings.toggleFavorite(market)
+                } label: {
+                    Label(isFavorite ? "お気に入りから外す" : "お気に入りに追加（Apple Watch に表示）",
+                          systemImage: isFavorite ? "star.fill" : "star")
+                }
+            }
+        }
         .task(id: interval) { await loadHistory() }
     }
 

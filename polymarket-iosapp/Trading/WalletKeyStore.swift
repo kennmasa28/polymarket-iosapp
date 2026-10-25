@@ -2,34 +2,40 @@
 //  WalletKeyStore.swift
 //  polymarket-iosapp
 //
-//  ウォレット秘密鍵の保存先。UserDefaults や JSON ファイルには絶対に保存しない。
-//  Keychain に「この端末のみ・ロック解除中のみ」アクセス可能な属性で保存する。
-//  （現時点では UI から未使用。売買機能の実装時に利用する）
+//  ウォレット秘密鍵などの Keychain 保存。UserDefaults や JSON ファイルには絶対に保存しない。
+//  秘密鍵は「この端末のみ・パスコード設定時のみ」かつ読み出しのたびに Face ID / パスコードを要求する。
 //
 
 import Foundation
+import LocalAuthentication
 import Security
-
-protocol WalletKeyStore {
-    func hasKey() -> Bool
-    func save(privateKey: String) throws
-    func load() throws -> String?
-    func delete() throws
-}
 
 nonisolated enum KeychainError: LocalizedError {
     case unexpectedStatus(OSStatus)
+    case accessControlUnavailable
+    case passcodeNotSet
+    case userCanceled
 
     var errorDescription: String? {
         switch self {
         case .unexpectedStatus(let status): "Keychain エラー (\(status))"
+        case .accessControlUnavailable: "Keychain のアクセス制御を作成できませんでした"
+        case .passcodeNotSet: "秘密鍵を保護するため、端末にパスコードを設定してください"
+        case .userCanceled: "認証がキャンセルされました"
         }
     }
 }
 
-final class KeychainWalletKeyStore: WalletKeyStore {
-    private let service = "kengo.shibata.polymarket-iosapp.wallet"
-    private let account = "primary"
+nonisolated struct KeychainItem: Sendable {
+    let service: String
+    let account: String
+    /// true なら読み出しのたびに Face ID / Touch ID / パスコードを要求する
+    let requiresUserPresence: Bool
+
+    static let privateKey = KeychainItem(
+        service: "kengo.shibata.polymarket-iosapp.wallet", account: "privateKey", requiresUserPresence: true)
+    static let clobCredentials = KeychainItem(
+        service: "kengo.shibata.polymarket-iosapp.wallet", account: "clobCredentials", requiresUserPresence: false)
 
     private var baseQuery: [String: Any] {
         [
@@ -39,32 +45,49 @@ final class KeychainWalletKeyStore: WalletKeyStore {
         ]
     }
 
-    func hasKey() -> Bool {
-        var query = baseQuery
-        query[kSecReturnData as String] = false
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
-    }
-
-    func save(privateKey: String) throws {
+    func save(_ data: Data) throws {
         try delete()
         var query = baseQuery
-        query[kSecValueData as String] = Data(privateKey.utf8)
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        query[kSecValueData as String] = data
+        if requiresUserPresence {
+            #if targetEnvironment(simulator)
+            // シミュレータはパスコード/生体認証を前提にできないため保護レベルを下げる
+            query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+            #else
+            guard let access = SecAccessControlCreateWithFlags(
+                nil, kSecAttrAccessibleWhenPasscodeSetThisDeviceOnly, .userPresence, nil)
+            else { throw KeychainError.accessControlUnavailable }
+            query[kSecAttrAccessControl as String] = access
+            #endif
+        } else {
+            query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        }
         let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else { throw KeychainError.unexpectedStatus(status) }
+        switch status {
+        case errSecSuccess: return
+        case errSecAuthFailed, errSecNotAvailable: throw KeychainError.passcodeNotSet
+        default: throw KeychainError.unexpectedStatus(status)
+        }
     }
 
-    func load() throws -> String? {
+    /// `requiresUserPresence` の項目は認証 UI が出てブロックするため、メインスレッド外から呼ぶこと
+    func load(reason: String? = nil) throws -> Data? {
         var query = baseQuery
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
+        if let reason {
+            let context = LAContext()
+            context.localizedReason = reason
+            query[kSecUseAuthenticationContext as String] = context
+        }
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecItemNotFound { return nil }
-        guard status == errSecSuccess, let data = item as? Data else {
-            throw KeychainError.unexpectedStatus(status)
+        switch status {
+        case errSecSuccess: return item as? Data
+        case errSecItemNotFound: return nil
+        case errSecUserCanceled: throw KeychainError.userCanceled
+        default: throw KeychainError.unexpectedStatus(status)
         }
-        return String(data: data, encoding: .utf8)
     }
 
     func delete() throws {

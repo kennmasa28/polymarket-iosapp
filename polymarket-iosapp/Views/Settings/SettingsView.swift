@@ -63,6 +63,25 @@ struct SettingsView: View {
                     Text("アプリ表示中は指定間隔で実行します。バックグラウンドでは iOS が実行タイミングを決めるため、最短でも15分程度の間隔になり、保証もされません。")
                 }
 
+                Section {
+                    if settings.value.favorites.isEmpty {
+                        Text("マーケット詳細の ☆ でお気に入りに追加できます")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(settings.value.favorites) { favorite in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(favorite.title)
+                            Text(favorite.question).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    .onDelete { settings.removeFavorites(at: $0) }
+                    .onMove { settings.moveFavorites(from: $0, to: $1) }
+                } header: {
+                    Text("お気に入り（Apple Watch）")
+                } footer: {
+                    Text("Apple Watch の文字盤を編集し、コンプリケーションで「Polymarket」を選ぶと価格と24時間の変化を表示できます。先頭のお気に入りが既定で表示されます。")
+                }
+
                 Section("通知") {
                     Toggle("急変を通知する", isOn: $settings.value.notificationsEnabled)
                     Button("テスト通知を送信") {

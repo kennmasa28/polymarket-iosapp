@@ -37,6 +37,39 @@ final class SettingsStore {
         guard let index = value.conditions.firstIndex(where: { $0.id == id }) else { return }
         value.conditions[index].isEnabled = enabled
     }
+
+    // MARK: Favorites
+
+    func isFavorite(marketId: String) -> Bool {
+        value.favorites.contains { $0.id == marketId }
+    }
+
+    func toggleFavorite(_ market: PMMarket) {
+        if let index = value.favorites.firstIndex(where: { $0.id == market.id }) {
+            value.favorites.remove(at: index)
+        } else {
+            value.favorites.append(FavoriteMarket(
+                id: market.id,
+                title: FavoriteMarket.shortTitle(from: market.displayName),
+                question: market.question))
+        }
+        WatchSyncService.shared.send(favorites: value.favorites)
+    }
+
+    func removeFavorites(at offsets: IndexSet) {
+        value.favorites.removeElements(at: offsets)
+        WatchSyncService.shared.send(favorites: value.favorites)
+    }
+
+    func moveFavorites(from source: IndexSet, to destination: Int) {
+        var favorites = value.favorites
+        let moving = source.sorted().map { favorites[$0] }
+        favorites.removeElements(at: source)
+        let insertAt = destination - source.filter { $0 < destination }.count
+        favorites.insert(contentsOf: moving, at: max(0, min(insertAt, favorites.count)))
+        value.favorites = favorites
+        WatchSyncService.shared.send(favorites: value.favorites)
+    }
 }
 
 /// アラート履歴（alerts.json）

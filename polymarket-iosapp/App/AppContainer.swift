@@ -9,13 +9,16 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// API クライアントと取引サービス。取引機能を実装したら `trading` を差し替える。
+/// API クライアントと取引サービス
 @Observable
 final class AppServices {
     let gamma = GammaAPI()
     let clob = ClobAPI()
     let data = DataAPI()
-    var trading: any TradingService = DisabledTradingService()
+    /// ウォレット接続・ロック管理を含む具体実装（設定画面で使用）
+    let wallet = PolymarketTradingService()
+    /// 売買 UI はこの抽象だけに依存する
+    var trading: any TradingService { wallet }
 }
 
 nonisolated enum AppTab: Hashable {
@@ -51,6 +54,7 @@ final class AppContainer {
 
     private init() {
         monitor = MarketMonitor(services: services, settings: settings, snapshots: snapshots, alerts: alerts)
+        WatchSyncService.shared.activate(favorites: settings.value.favorites)
     }
 
     func handleScenePhase(_ phase: ScenePhase) {
@@ -59,6 +63,8 @@ final class AppContainer {
             startForegroundLoop()
         case .background:
             stopForegroundLoop()
+            // 秘密鍵をメモリに残さない
+            services.wallet.lock()
             if settings.value.monitoringEnabled {
                 BackgroundRefresh.schedule(afterMinutes: settings.value.pollIntervalMinutes)
             } else {

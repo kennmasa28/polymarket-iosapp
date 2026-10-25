@@ -24,8 +24,8 @@ struct RootView: View {
                 AlertsView()
             }
             .badge(alerts.unreadCount)
-            // 売買機能の実装後、ウォレット接続時のみ表示
-            if services.trading.state.canTrade {
+            // ウォレット接続時のみ表示
+            if services.trading.state.isConfigured {
                 Tab("ポートフォリオ", systemImage: "briefcase", value: AppTab.portfolio) {
                     PortfolioView()
                 }
