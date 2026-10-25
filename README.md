@@ -68,7 +68,7 @@ UI は `TradingService` プロトコルと `TradingState` だけに依存して�
 ## ディレクトリ構成
 
 ```
-polymarket-iosapp/polymarket-iosapp/
+polymarket-iosapp/
 ├── polymarket_iosappApp.swift   エントリポイント / 通知デリゲート / BGタスク登録
 ├── App/AppContainer.swift        サービス・ストアの生成、フォアグラウンド巡回ループ
 ├── Models/                       API モデル、監視条件・設定、アラート
