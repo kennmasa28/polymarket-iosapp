@@ -30,7 +30,7 @@ final class SettingsStore {
     }
 
     func removeConditions(at offsets: IndexSet) {
-        value.conditions.remove(atOffsets: offsets)
+        value.conditions.removeElements(at: offsets)
     }
 
     func setEnabled(_ enabled: Bool, for id: UUID) {
@@ -83,7 +83,7 @@ final class AlertStore {
     }
 
     func remove(at offsets: IndexSet) {
-        records.remove(atOffsets: offsets)
+        records.removeElements(at: offsets)
         save()
     }
 
@@ -134,5 +134,14 @@ final class SnapshotStore {
     func removeAll() {
         storage.removeAll()
         LocalStore.remove(Self.fileName)
+    }
+}
+
+private extension Array {
+    /// SwiftUI の `remove(atOffsets:)` 相当（ストア層を SwiftUI に依存させないため）
+    mutating func removeElements(at offsets: IndexSet) {
+        for index in offsets.sorted(by: >) where indices.contains(index) {
+            remove(at: index)
+        }
     }
 }
