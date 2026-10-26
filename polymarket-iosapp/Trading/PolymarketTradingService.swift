@@ -32,8 +32,10 @@ final class PolymarketTradingService: TradingService {
     @ObservationIgnored private let dataAPI = DataAPI()
 
     init() {
-        configuration = LocalStore.load(WalletConfiguration.self, from: Self.configurationFile)
-        state = configuration == nil ? .notConfigured : .locked
+        // @Observable のプロパティは全プロパティ初期化前に読めないため、ローカル変数経由で設定する
+        let saved = LocalStore.load(WalletConfiguration.self, from: Self.configurationFile)
+        configuration = saved
+        state = saved == nil ? .notConfigured : .locked
     }
 
     var fundingAddress: String? { configuration?.funderAddress }
