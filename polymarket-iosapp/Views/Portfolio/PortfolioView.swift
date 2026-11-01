@@ -15,6 +15,7 @@ struct PortfolioView: View {
     @State private var orders: [OpenOrder] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
+    @State private var sellDraft: OrderDraft?
 
     var body: some View {
         NavigationStack {
@@ -48,12 +49,28 @@ struct PortfolioView: View {
                     }
                 }
 
-                Section("ポジション") {
+                Section {
                     if positions.isEmpty {
                         Text(isLoading ? "読み込み中…" : "ポジションはありません").foregroundStyle(.secondary)
                     }
                     ForEach(positions) { position in
-                        PositionRow(position: position)
+                        Button {
+                            Task { await openSell(position) }
+                        } label: {
+                            PositionRow(position: position)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions {
+                            Button("売却") { Task { await openSell(position) } }
+                                .tint(.orange)
+                        }
+                    }
+                } header: {
+                    Text("ポジション")
+                } footer: {
+                    if !positions.isEmpty {
+                        Text("ポジションをタップ（または左にスワイプ）すると売却できます。")
                     }
                 }
 
@@ -80,6 +97,9 @@ struct PortfolioView: View {
                 }
             }
             .navigationTitle("ポートフォリオ")
+            .sheet(item: $sellDraft, onDismiss: { Task { await load() } }) { draft in
+                NavigationStack { OrderTicketView(draft: draft) }
+            }
             .refreshable { await load() }
             .task(id: services.trading.state) { await load() }
         }
@@ -102,6 +122,19 @@ struct PortfolioView: View {
         } catch {
             if !error.isCancellation { errorMessage = error.localizedDescription }
         }
+    }
+
+    /// 売却には署名が必要なので、ロック中なら先に解除する
+    private func openSell(_ position: Position) async {
+        if !services.trading.state.canTrade {
+            do {
+                try await services.trading.unlock()
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+        sellDraft = OrderDraft(position: position)
     }
 
     private func cancel(_ order: OpenOrder) async {

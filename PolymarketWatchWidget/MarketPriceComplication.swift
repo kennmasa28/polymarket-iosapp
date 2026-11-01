@@ -51,6 +51,10 @@ struct SelectMarketIntent: WidgetConfigurationIntent {
     /// 未指定ならお気に入りの先頭を表示
     @Parameter(title: "マーケット")
     var market: FavoriteMarketEntity?
+
+    /// オンならお気に入りからランダムに選び、一定間隔で切り替える（market より優先）
+    @Parameter(title: "お気に入りからランダムに表示", default: false)
+    var random: Bool
 }
 
 // MARK: - Timeline
@@ -72,33 +76,81 @@ struct QuoteProvider: AppIntentTimelineProvider {
     }
 
     func timeline(for configuration: SelectMarketIntent, in context: Context) async -> Timeline<QuoteEntry> {
-        let entry = await entry(for: configuration)
         // 文字盤の更新回数には上限があるため 15 分間隔で十分
-        return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60)))
+        let interval: TimeInterval = 15 * 60
+        guard configuration.random else {
+            let entry = await entry(for: configuration)
+            return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(interval)))
+        }
+
+        // ランダム: お気に入りの価格をまとめて取得し、15 分ごとに別のマーケットを表示する
+        let favorites = SharedStore.favorites()
+        let available = await quotes(for: favorites)
+        guard !available.isEmpty else {
+            return Timeline(entries: [QuoteEntry(date: .now, title: nil, quote: nil)], policy: .after(Date().addingTimeInterval(interval)))
+        }
+        let now = Date()
+        let picks = Self.randomSequence(of: available, count: 4)
+        let entries = picks.enumerated().map { index, quote in
+            QuoteEntry(date: now.addingTimeInterval(Double(index) * interval), title: quote.title, quote: quote)
+        }
+        return Timeline(entries: entries, policy: .atEnd)
     }
 
     /// watchOS では文字盤編集時にこの一覧から選ぶ
     func recommendations() -> [AppIntentRecommendation<SelectMarketIntent>] {
-        let favorites = SharedStore.favorites()
-        guard !favorites.isEmpty else {
-            return [AppIntentRecommendation(intent: SelectMarketIntent(), description: Text("お気に入りの先頭"))]
-        }
-        return favorites.prefix(10).map { favorite in
+        var randomIntent = SelectMarketIntent()
+        randomIntent.random = true
+        var recommendations = [
+            AppIntentRecommendation(intent: randomIntent, description: Text("お気に入りからランダム")),
+            AppIntentRecommendation(intent: SelectMarketIntent(), description: Text("お気に入りの先頭")),
+        ]
+        for favorite in SharedStore.favorites().prefix(10) {
             var intent = SelectMarketIntent()
             intent.market = FavoriteMarketEntity(favorite)
-            return AppIntentRecommendation(intent: intent, description: Text(favorite.title))
+            recommendations.append(AppIntentRecommendation(intent: intent, description: Text(favorite.title)))
         }
+        return recommendations
     }
 
     private func entry(for configuration: SelectMarketIntent) async -> QuoteEntry {
         let favorites = SharedStore.favorites()
-        let selected = favorites.first { $0.id == configuration.market?.id } ?? favorites.first
+        let selected: FavoriteMarket?
+        if configuration.random {
+            selected = favorites.randomElement()
+        } else {
+            selected = favorites.first { $0.id == configuration.market?.id } ?? favorites.first
+        }
         guard let favorite = selected else {
             return QuoteEntry(date: .now, title: nil, quote: nil)
         }
-        let fetched = try? await QuoteFetcher.quotes(for: [favorite]).first
-        return QuoteEntry(
-            date: .now, title: favorite.title, quote: fetched ?? SharedStore.cachedQuote(for: favorite.id))
+        let quote = await quotes(for: [favorite]).first
+        return QuoteEntry(date: .now, title: favorite.title, quote: quote)
+    }
+
+    /// 取得に失敗したマーケットは直近のキャッシュで補う
+    private func quotes(for favorites: [FavoriteMarket]) async -> [MarketQuote] {
+        let fetched = (try? await QuoteFetcher.quotes(for: favorites)) ?? []
+        let byId = Dictionary(fetched.map { ($0.marketId, $0) }, uniquingKeysWith: { first, _ in first })
+        return favorites.compactMap { byId[$0.id] ?? SharedStore.cachedQuote(for: $0.id) }
+    }
+
+    /// 同じマーケットが連続しないようにランダムに並べる
+    static func randomSequence(of quotes: [MarketQuote], count: Int) -> [MarketQuote] {
+        guard quotes.count > 1 else { return Array(quotes.prefix(1)) }
+        var result: [MarketQuote] = []
+        var pool: [MarketQuote] = []
+        while result.count < count {
+            if pool.isEmpty { pool = quotes.shuffled() }
+            let next = pool.removeLast()
+            if next.marketId == result.last?.marketId, let swap = pool.popLast() {
+                pool.append(next)
+                result.append(swap)
+            } else {
+                result.append(next)
+            }
+        }
+        return result
     }
 }
 

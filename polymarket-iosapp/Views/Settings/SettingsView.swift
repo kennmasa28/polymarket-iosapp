@@ -79,7 +79,7 @@ struct SettingsView: View {
                 } header: {
                     Text("お気に入り（Apple Watch）")
                 } footer: {
-                    Text("Apple Watch の文字盤を編集し、コンプリケーションで「Polymarket」を選ぶと価格と24時間の変化を表示できます。先頭のお気に入りが既定で表示されます。")
+                    Text("Apple Watch の文字盤を編集し、コンプリケーションで「Polymarket」を選ぶと価格と24時間の変化を表示できます。「お気に入りからランダム」（15分ごとに切り替え）、「お気に入りの先頭」、または特定のマーケットから選べます。")
                 }
 
                 Section("通知") {

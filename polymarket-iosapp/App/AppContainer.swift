@@ -22,7 +22,7 @@ final class AppServices {
 }
 
 nonisolated enum AppTab: Hashable {
-    case feed, monitor, alerts, portfolio, settings
+    case feed, favorites, monitor, alerts, portfolio, settings
 }
 
 nonisolated struct MarketRef: Identifiable, Hashable, Sendable {

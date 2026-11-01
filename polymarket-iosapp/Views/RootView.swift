@@ -17,6 +17,9 @@ struct RootView: View {
             Tab("トピックス", systemImage: "flame", value: AppTab.feed) {
                 FeedView()
             }
+            Tab("お気に入り", systemImage: "star", value: AppTab.favorites) {
+                FavoritesView()
+            }
             Tab("モニター", systemImage: "waveform.path.ecg", value: AppTab.monitor) {
                 MonitorView()
             }

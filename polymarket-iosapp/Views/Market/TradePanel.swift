@@ -8,15 +8,36 @@
 
 import SwiftUI
 
+/// 注文チケットに渡す対象（マーケット詳細・ポートフォリオの両方から作る）
 struct OrderDraft: Identifiable {
     let id = UUID()
-    let market: PMMarket
-    let outcomeIndex: Int
+    let question: String
+    let outcomeName: String
+    let tokenId: String?
+    /// 現在価格（0〜1）
+    let price: Double?
     var side: OrderSide = .buy
+    /// 保有株数。売却時の初期値と「全量」ボタンに使う
+    var heldShares: Double?
 
-    var outcomeName: String { market.outcomes.indices.contains(outcomeIndex) ? market.outcomes[outcomeIndex] : "?" }
-    var tokenId: String? { market.clobTokenIds.indices.contains(outcomeIndex) ? market.clobTokenIds[outcomeIndex] : nil }
-    var price: Double? { market.outcomePrices.indices.contains(outcomeIndex) ? market.outcomePrices[outcomeIndex] : nil }
+    init(market: PMMarket, outcomeIndex: Int, side: OrderSide = .buy, heldShares: Double? = nil) {
+        question = market.question
+        outcomeName = market.outcomes.indices.contains(outcomeIndex) ? market.outcomes[outcomeIndex] : "?"
+        tokenId = market.clobTokenIds.indices.contains(outcomeIndex) ? market.clobTokenIds[outcomeIndex] : nil
+        price = market.outcomePrices.indices.contains(outcomeIndex) ? market.outcomePrices[outcomeIndex] : nil
+        self.side = side
+        self.heldShares = heldShares
+    }
+
+    /// 保有ポジションの売却
+    init(position: Position) {
+        question = position.marketQuestion
+        outcomeName = position.outcome
+        tokenId = position.tokenId
+        price = position.currentPrice
+        side = .sell
+        heldShares = position.size
+    }
 }
 
 struct TradePanel: View {
@@ -27,16 +48,32 @@ struct TradePanel: View {
     @State private var draft: OrderDraft?
     @State private var errorMessage: String?
     @State private var isUnlocking = false
+    /// トークン ID → 保有株数
+    @State private var holdings: [String: Double] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
+            ForEach(heldOutcomes) { held in
+                HStack {
+                    Label(String(format: "%@ を %.2f 株保有", held.name, held.shares), systemImage: "briefcase")
+                        .font(.subheadline)
+                    Spacer()
+                    Button("売却") {
+                        Task { await open(outcomeIndex: held.index, side: .sell) }
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.orange)
+                    .disabled(!market.isTradable || isUnlocking)
+                }
+            }
+
             HStack(spacing: 10) {
                 ForEach(Array(market.outcomes.prefix(2).enumerated()), id: \.offset) { index, outcome in
                     Button {
-                        Task { await open(outcomeIndex: index) }
+                        Task { await open(outcomeIndex: index, side: .buy) }
                     } label: {
                         VStack(spacing: 2) {
-                            Text("\(outcome) を取引").font(.subheadline.weight(.semibold))
+                            Text("\(outcome) を買う").font(.subheadline.weight(.semibold))
                             Text(Fmt.cents(market.outcomePrices.indices.contains(index) ? market.outcomePrices[index] : nil))
                                 .font(.caption.monospacedDigit())
                         }
@@ -69,13 +106,42 @@ struct TradePanel: View {
                 Text(errorMessage).font(.caption).foregroundStyle(.red)
             }
         }
-        .sheet(item: $draft) { draft in
+        .sheet(item: $draft, onDismiss: { Task { await loadHoldings() } }) { draft in
             NavigationStack { OrderTicketView(draft: draft) }
                 .presentationDetents([.large])
         }
+        .task(id: services.trading.state.isConfigured) { await loadHoldings() }
     }
 
-    private func open(outcomeIndex: Int) async {
+    private struct HeldOutcome: Identifiable {
+        let index: Int
+        let name: String
+        let shares: Double
+        var id: Int { index }
+    }
+
+    private var heldOutcomes: [HeldOutcome] {
+        market.clobTokenIds.enumerated().compactMap { index, tokenId in
+            guard let shares = holdings[tokenId], shares >= 0.01 else { return nil }
+            let name = market.outcomes.indices.contains(index) ? market.outcomes[index] : "?"
+            return HeldOutcome(index: index, name: name, shares: shares)
+        }
+    }
+
+    /// 保有ポジションは Data API（資金保有アドレス）から取得するので、ロック中でも表示できる
+    private func loadHoldings() async {
+        guard services.trading.state.isConfigured,
+              let positions = try? await services.trading.positions()
+        else {
+            holdings = [:]
+            return
+        }
+        holdings = Dictionary(
+            positions.filter { market.clobTokenIds.contains($0.tokenId) }.map { ($0.tokenId, $0.size) },
+            uniquingKeysWith: +)
+    }
+
+    private func open(outcomeIndex: Int, side: OrderSide) async {
         if !services.trading.state.canTrade {
             isUnlocking = true
             defer { isUnlocking = false }
@@ -87,7 +153,8 @@ struct TradePanel: View {
             }
         }
         errorMessage = nil
-        draft = OrderDraft(market: market, outcomeIndex: outcomeIndex)
+        let tokenId = market.clobTokenIds.indices.contains(outcomeIndex) ? market.clobTokenIds[outcomeIndex] : ""
+        draft = OrderDraft(market: market, outcomeIndex: outcomeIndex, side: side, heldShares: holdings[tokenId])
     }
 }
 
@@ -118,6 +185,10 @@ struct OrderTicketView: View {
     init(draft: OrderDraft) {
         self.draft = draft
         _side = State(initialValue: draft.side)
+        if draft.side == .sell, let held = draft.heldShares {
+            // 保有株数を 0.01 株単位に切り捨てて初期値にする
+            _size = State(initialValue: (held * 100).rounded(.down) / 100)
+        }
         _limitPrice = State(initialValue: min(max(((draft.price ?? 0.5) * 100).rounded() / 100, 0.01), 0.99))
     }
 
@@ -146,7 +217,7 @@ struct OrderTicketView: View {
     var body: some View {
         Form {
             Section {
-                Text(draft.market.question).font(.subheadline)
+                Text(draft.question).font(.subheadline)
                 LabeledContent("アウトカム", value: draft.outcomeName)
                 if let bid = estimate?.bestBid, let ask = estimate?.bestAsk {
                     LabeledContent("買い気配 / 売り気配", value: "\(Fmt.cents(bid)) / \(Fmt.cents(ask))")
@@ -169,6 +240,18 @@ struct OrderTicketView: View {
                     TextField(sizeLabel, value: $size, format: .number)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
+                }
+                if side == .sell, let held = draft.heldShares, held >= 0.01 {
+                    HStack {
+                        Text(String(format: "保有 %.2f 株", held))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("全量") { size = (held * 100).rounded(.down) / 100 }
+                            .buttonStyle(.bordered)
+                        Button("半分") { size = (held * 50).rounded(.down) / 100 }
+                            .buttonStyle(.bordered)
+                    }
                 }
                 if mode == .limit {
                     Stepper(value: $limitPrice, in: tick...(1 - tick), step: tick) {

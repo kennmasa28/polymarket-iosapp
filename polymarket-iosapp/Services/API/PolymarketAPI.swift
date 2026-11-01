@@ -60,6 +60,14 @@ nonisolated struct GammaAPI: Sendable {
         try await http.get(Self.baseURL, path: "markets/\(id)")
     }
 
+    /// 複数マーケットをまとめて取得（お気に入りの価格更新用）
+    func markets(ids: [String]) async throws -> [PMMarket] {
+        guard !ids.isEmpty else { return [] }
+        let result: [Lossy<PMMarket>] = try await http.get(
+            Self.baseURL, path: "markets", query: ids.map { URLQueryItem(name: "id", value: $0) })
+        return result.compactMap(\.value)
+    }
+
     func tags(limit: Int = 500, offset: Int = 0) async throws -> [PMTag] {
         let result: [Lossy<PMTag>] = try await http.get(
             Self.baseURL, path: "tags",
