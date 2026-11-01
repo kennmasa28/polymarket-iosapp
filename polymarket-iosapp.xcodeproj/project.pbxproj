@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		A7C0DE07308E02BD00ED5835 /* PolymarketWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A7C0DE01308E02BD00ED5835 /* PolymarketWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A7C0DE08308E02BD00ED5835 /* PolymarketWatchWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A7C0DE02308E02BD00ED5835 /* PolymarketWatchWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		A7C0DE09308E02BD00ED5835 /* P256K in Frameworks */ = {isa = PBXBuildFile; productRef = A7C0DE1F308E02BD00ED5835 /* P256K */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -137,7 +136,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A7C0DE09308E02BD00ED5835 /* P256K in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -220,7 +218,6 @@
 			);
 			name = "polymarket-iosapp";
 			packageProductDependencies = (
-				A7C0DE1F308E02BD00ED5835 /* P256K */,
 			);
 			productName = "polymarket-iosapp";
 			productReference = 5DBF986A308E02BB00ED5835 /* polymarket-iosapp.app */;
@@ -358,9 +355,6 @@
 			);
 			mainGroup = 5DBF9861308E02BB00ED5835;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				A7C0DE1E308E02BD00ED5835 /* XCRemoteSwiftPackageReference "swift-secp256k1" */,
-			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5DBF986B308E02BB00ED5835 /* Products */;
 			projectDirPath = "";
@@ -485,6 +479,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JQ7NZ97V3N;
 				ENABLE_PREVIEWS = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"ENABLE_MODULE_RECOVERY=1",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "polymarket-iosapp/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -503,6 +501,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "polymarket-iosapp/Trading/Crypto/Secp256k1-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -519,6 +518,10 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JQ7NZ97V3N;
 				ENABLE_PREVIEWS = YES;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"ENABLE_MODULE_RECOVERY=1",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "polymarket-iosapp/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -537,6 +540,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "polymarket-iosapp/Trading/Crypto/Secp256k1-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -925,24 +929,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A7C0DE1E308E02BD00ED5835 /* XCRemoteSwiftPackageReference "swift-secp256k1" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/21-DOT-DEV/swift-secp256k1";
-			requirement = {
-				kind = exactVersion;
-				version = 0.24.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		A7C0DE1F308E02BD00ED5835 /* P256K */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A7C0DE1E308E02BD00ED5835 /* XCRemoteSwiftPackageReference "swift-secp256k1" */;
-			productName = P256K;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5DBF9862308E02BB00ED5835 /* Project object */;
 }

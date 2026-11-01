@@ -58,7 +58,7 @@ Polymarket の最新トピックスを表示し、興味のある条件に一致
 
 - **秘密鍵の保存**: Keychain に「パスコード設定時のみ・この端末のみ」で保存し、読み出すたびに Face ID / パスコードを要求します（`Trading/WalletKeyStore.swift`）。設定ファイルや UserDefaults には保存しません
 - **ロック**: ロック解除中だけ鍵をメモリに保持し、アプリがバックグラウンドに入ると自動でロックします
-- **署名**: 注文は端末内で EIP-712 署名します（secp256k1 は [swift-secp256k1](https://github.com/21-DOT-DEV/swift-secp256k1) 0.24.0、Keccak-256 と EIP-712 は自前実装）。秘密鍵は外部に送信しません
+- **署名**: 注文は端末内で EIP-712 署名します（secp256k1 は [bitcoin-core/secp256k1](https://github.com/bitcoin-core/secp256k1) v0.7.0 を `Trading/Crypto/libsecp256k1/` に同梱し、Keccak-256 と EIP-712 は自前実装）。秘密鍵は外部に送信しません
 - **API 認証**: 初回接続時に L1 署名で CLOB の API キーを作成/導出し、以降は HMAC（L2）ヘッダで発注・取消・残高照会を行います
 - **アカウント種別**: polymarket.com に MetaMask でログインしている場合は「Polymarket Safe」を選び、Polymarket の入金先アドレス（資金保有アドレス）を入力します。秘密鍵のアドレスで直接 USDC を持つ場合は「EOA」です（EOA の場合は事前にコントラクトへの approve が必要です）
 - **注文**: 指値（GTC）と成行（FOK、許容価格を指定）。送信前に確認ダイアログを表示します
@@ -99,7 +99,7 @@ polymarket-iosapp/                iPhone アプリ
 │   ├── Storage/                  JSON 永続化（設定・アラート・スナップショット）
 │   └── WatchSyncService.swift    お気に入りを Watch へ送信
 ├── Trading/
-│   ├── Crypto/                   Keccak-256、ABI、EIP-712、secp256k1 署名
+│   ├── Crypto/                   Keccak-256、ABI、EIP-712、secp256k1 署名（libsecp256k1 同梱、MIT）
 │   ├── Polymarket/               注文ビルダー、CLOB 認証付きクライアント
 │   ├── PolymarketTradingService.swift  ウォレット接続・ロック・発注
 │   └── WalletKeyStore.swift      Keychain
