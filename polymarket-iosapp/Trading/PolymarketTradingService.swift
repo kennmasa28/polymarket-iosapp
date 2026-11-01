@@ -42,19 +42,25 @@ final class PolymarketTradingService: TradingService {
 
     // MARK: Wallet lifecycle
 
-    /// 秘密鍵を検証して CLOB の API キーを取得し、Keychain に保存して接続する
-    func connect(privateKey: String, signatureType: WalletSignatureType, funderAddress: String?) async throws {
+    /// 秘密鍵と資金保有アドレスを検証し（ウォレット種別は自動判定）、CLOB の API キーを取得して Keychain に保存する。
+    /// 資金保有アドレスを空にした場合は秘密鍵のアドレス（EOA）で取引する
+    func connect(privateKey: String, funderAddress: String?) async throws {
         let keyData = try Data(hex: privateKey)
         let signer = try EthereumSigner(privateKey: keyData)
 
         let funder: String
-        if signatureType.usesFunderAddress {
-            guard let funderAddress, EthereumAddress.isValid(funderAddress) else {
-                throw TradingError.invalidFunderAddress
-            }
-            funder = try EthereumAddress.checksummed(funderAddress)
-        } else {
+        let signatureType: WalletSignatureType
+        let trimmed = funderAddress?.trimmingCharacters(in: .whitespaces) ?? ""
+        if trimmed.isEmpty {
             funder = signer.address
+            signatureType = .eoa
+        } else {
+            guard EthereumAddress.isValid(trimmed) else { throw TradingError.invalidFunderAddress }
+            funder = try EthereumAddress.checksummed(trimmed)
+            guard let detected = try WalletDerivation.detect(signer: signer.address, wallet: funder) else {
+                throw TradingError.unknownWalletType
+            }
+            signatureType = detected
         }
 
         let credentials = try await clob.createOrDeriveCredentials(signer: signer)
@@ -83,6 +89,14 @@ final class PolymarketTradingService: TradingService {
 
         let signer = try EthereumSigner(privateKey: keyData)
         guard signer.address == configuration.signerAddress else { throw TradingError.keyMismatch }
+        // 以前のバージョンで保存した種別が誤っていても、資金保有アドレスから判定し直して補正する
+        if let detected = try? WalletDerivation.detect(signer: signer.address, wallet: configuration.funderAddress),
+           detected != configuration.signatureType {
+            var corrected = configuration
+            corrected.signatureType = detected
+            LocalStore.save(corrected, to: Self.configurationFile)
+            self.configuration = corrected
+        }
 
         var credentials = (try? KeychainItem.clobCredentials.load())
             .flatMap { try? JSONDecoder().decode(ClobCredentials.self, from: $0) }
@@ -121,36 +135,46 @@ final class PolymarketTradingService: TradingService {
 
     // MARK: Trading
 
+    func estimate(_ order: OrderRequest) async throws -> OrderEstimate {
+        let book = try await clob.orderBook(tokenId: order.tokenId)
+        let (amounts, price) = try Self.amounts(for: order, book: book)
+        let shares = Double(order.side == .buy ? amounts.takerAmount : amounts.makerAmount) / 1_000_000
+        let usdc = Double(order.side == .buy ? amounts.makerAmount : amounts.takerAmount) / 1_000_000
+        return OrderEstimate(
+            price: price, shares: shares, usdc: usdc, tickSize: try ClobTick(book.tickSize).value,
+            minOrderSize: book.minOrderSize, bestBid: book.bestBid, bestAsk: book.bestAsk)
+    }
+
     func placeOrder(_ order: OrderRequest) async throws -> OrderReceipt {
         let (signer, credentials, configuration) = try readyContext()
-
-        let tickSize = try await clob.tickSize(tokenId: order.tokenId)
-        let negRisk = try await clob.negRisk(tokenId: order.tokenId)
-        let feeRate = try await clob.feeRateBps(tokenId: order.tokenId)
-
-        let amounts: ClobOrderAmounts
-        if order.type == .fok {
-            amounts = try ClobOrderBuilder.marketAmounts(
-                side: order.side, price: order.price, size: order.size, tickSize: tickSize)
-        } else {
-            amounts = try ClobOrderBuilder.limitAmounts(
-                side: order.side, price: order.price, size: order.size, tickSize: tickSize)
-        }
+        let book = try await clob.orderBook(tokenId: order.tokenId)
+        let (amounts, _) = try Self.amounts(for: order, book: book)
 
         let signed = try ClobOrderBuilder.build(
             ClobOrderParameters(
                 tokenId: order.tokenId,
                 side: order.side,
                 amounts: amounts,
-                maker: configuration.funderAddress,
+                wallet: configuration.funderAddress,
                 signatureType: configuration.signatureType,
-                feeRateBps: feeRate,
-                negRisk: negRisk),
+                negRisk: book.negRisk),
             signer: signer)
 
         let response = try await clob.postOrder(
             signed, orderType: order.type, address: signer.address, credentials: credentials)
         return OrderReceipt(orderId: response.orderID ?? "", status: response.status ?? "submitted")
+    }
+
+    /// 成行は板から約定価格を決め、指値は指定価格で金額を計算する
+    private static func amounts(for order: OrderRequest, book: ClobOrderBook) throws -> (ClobOrderAmounts, Double) {
+        let tick = try ClobTick(book.tickSize)
+        if order.type.isMarket {
+            let price = try ClobOrderBuilder.marketPrice(book: book, side: order.side, amount: order.size, type: order.type)
+            let amounts = try ClobOrderBuilder.marketAmounts(side: order.side, price: price, amount: order.size, tick: tick)
+            return (amounts, price)
+        }
+        guard let price = order.limitPrice else { throw ClobOrderError.priceOutOfRange(min: tick.value, max: 1 - tick.value) }
+        return (try ClobOrderBuilder.limitAmounts(side: order.side, price: price, size: order.size, tick: tick), price)
     }
 
     func cancelOrder(id: String) async throws {

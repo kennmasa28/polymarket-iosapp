@@ -26,40 +26,40 @@ private struct ConnectWalletSections: View {
     @Environment(AppServices.self) private var services
 
     @State private var privateKey = ""
-    @State private var signatureType: WalletSignatureType = .gnosisSafe
     @State private var funderAddress = ""
     @State private var acknowledged = false
     @State private var isConnecting = false
     @State private var errorMessage: String?
 
-    var body: some View {
-        Section {
-            Picker("ウォレットの種類", selection: $signatureType) {
-                ForEach(WalletSignatureType.allCases, id: \.self) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.inline)
-            .labelsHidden()
-        } header: {
-            Text("Polymarket のアカウント種別")
-        } footer: {
-            Text("polymarket.com に MetaMask でログインしている場合は「Polymarket Safe」を選び、Polymarket の入金先（プロフィールに表示されるアドレス）を資金保有アドレスに入力してください。")
+    /// 入力中の鍵とアドレスからウォレット種別を判定して表示する
+    private var detectedType: String? {
+        guard let signer = try? EthereumSigner(privateKeyHex: privateKey) else { return nil }
+        let funder = funderAddress.trimmingCharacters(in: .whitespaces)
+        if funder.isEmpty { return WalletSignatureType.eoa.label }
+        guard EthereumAddress.isValid(funder) else { return "アドレスの形式が正しくありません" }
+        guard let type = try? WalletDerivation.detect(signer: signer.address, wallet: funder) else {
+            return "この秘密鍵のウォレットではありません"
         }
+        return type.label
+    }
 
+    var body: some View {
         Section {
             SecureField("秘密鍵（0x…64桁）", text: $privateKey)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .font(.body.monospaced())
-            if signatureType.usesFunderAddress {
-                TextField("資金保有アドレス（0x…）", text: $funderAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .font(.body.monospaced())
+            TextField("資金保有アドレス（0x…）", text: $funderAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .font(.body.monospaced())
+            if let detectedType {
+                LabeledContent("ウォレットの種類", value: detectedType)
             }
         } header: {
-            Text("MetaMask 秘密鍵")
+            Text("MetaMask 秘密鍵と Polymarket のアドレス")
         } footer: {
-            Text("MetaMask の「アカウントの詳細 › 秘密鍵を表示」で確認できます。秘密鍵はこの端末の Keychain（パスコード必須・この端末のみ）に保存され、使用時に Face ID / パスコードを要求します。署名は端末内で行い、秘密鍵が外部へ送信されることはありません。")
+            Text("資金保有アドレスには Polymarket の設定（またはプロフィール）に表示されるアカウントのアドレスを入力してください。種類（Safe・デポジットウォレット等）は自動判定します。空欄の場合は秘密鍵のアドレスで直接取引します。秘密鍵はこの端末の Keychain（パスコード必須・この端末のみ）に保存され、使用時に Face ID / パスコードを要求します。署名は端末内で行い、秘密鍵が外部へ送信されることはありません。")
         }
 
         Section {
@@ -78,8 +78,7 @@ private struct ConnectWalletSections: View {
                     if isConnecting { ProgressView() }
                 }
             }
-            .disabled(!acknowledged || privateKey.isEmpty || isConnecting
-                || (signatureType.usesFunderAddress && funderAddress.isEmpty))
+            .disabled(!acknowledged || privateKey.isEmpty || isConnecting)
         } footer: {
             Text("取引用に、専用の少額ウォレットの利用をおすすめします。Polymarket の利用規約と、お住まいの地域での利用可否を確認してください。")
         }
@@ -89,10 +88,7 @@ private struct ConnectWalletSections: View {
         isConnecting = true
         defer { isConnecting = false }
         do {
-            try await services.wallet.connect(
-                privateKey: privateKey,
-                signatureType: signatureType,
-                funderAddress: signatureType.usesFunderAddress ? funderAddress.trimmingCharacters(in: .whitespaces) : nil)
+            try await services.wallet.connect(privateKey: privateKey, funderAddress: funderAddress)
             privateKey = ""
             errorMessage = nil
         } catch {

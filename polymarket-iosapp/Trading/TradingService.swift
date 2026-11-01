@@ -41,20 +41,42 @@ nonisolated enum OrderSide: String, Codable, CaseIterable, Sendable {
 nonisolated enum OrderType: String, Codable, CaseIterable, Sendable {
     /// 指値（約定するまで板に残る）
     case gtc = "GTC"
-    /// 即時に全量約定、できなければ取消（価格は許容する最も不利な価格）
+    /// 成行：約定できる分だけ即時に約定し、残りは取消（Fill-And-Kill）
+    case fak = "FAK"
+    /// 成行：全量を即時に約定できなければ取消（Fill-Or-Kill）
     case fok = "FOK"
 
-    var label: String { self == .gtc ? "指値" : "成行(FOK)" }
+    var label: String {
+        switch self {
+        case .gtc: "指値"
+        case .fak: "成行"
+        case .fok: "成行(全量)"
+        }
+    }
+
+    var isMarket: Bool { self != .gtc }
 }
 
 nonisolated struct OrderRequest: Sendable {
     let tokenId: String
     let side: OrderSide
-    /// 0〜1（USDC/株）
-    let price: Double
-    /// 株数
-    let size: Double
     let type: OrderType
+    /// 指値: 株数 / 成行 BUY: 支払う USDC / 成行 SELL: 売る株数（py SDK と同じ）
+    let size: Double
+    /// 指値のみ（0〜1）
+    var limitPrice: Double?
+}
+
+/// 発注前の見積もり（板から算出）
+nonisolated struct OrderEstimate: Sendable {
+    /// 約定見込み価格（成行は板の最も不利な約定価格、指値は指定価格）
+    let price: Double
+    let shares: Double
+    let usdc: Double
+    let tickSize: Double
+    let minOrderSize: Double?
+    let bestBid: Double?
+    let bestAsk: Double?
 }
 
 nonisolated struct OrderReceipt: Sendable {
@@ -91,6 +113,7 @@ nonisolated enum TradingError: LocalizedError {
     case keyMissing
     case keyMismatch
     case invalidFunderAddress
+    case unknownWalletType
 
     var errorDescription: String? {
         switch self {
@@ -99,6 +122,7 @@ nonisolated enum TradingError: LocalizedError {
         case .keyMissing: "保存された秘密鍵が見つかりません。ウォレットを接続し直してください"
         case .keyMismatch: "保存された秘密鍵のアドレスが設定と一致しません"
         case .invalidFunderAddress: "資金保有アドレス（0x から始まる40桁）を正しく入力してください"
+        case .unknownWalletType: "この資金保有アドレスは入力した秘密鍵のウォレットではありません。Polymarket の設定に表示されるアドレスを確認してください"
         }
     }
 }
@@ -110,6 +134,8 @@ protocol TradingService: AnyObject {
 
     func unlock() async throws
     func lock()
+    /// 板から約定価格・数量を見積もる（認証不要）
+    func estimate(_ order: OrderRequest) async throws -> OrderEstimate
     func placeOrder(_ order: OrderRequest) async throws -> OrderReceipt
     func cancelOrder(id: String) async throws
     func openOrders() async throws -> [OpenOrder]
@@ -125,6 +151,7 @@ final class DisabledTradingService: TradingService {
 
     func unlock() async throws { throw TradingError.notConfigured }
     func lock() {}
+    func estimate(_ order: OrderRequest) async throws -> OrderEstimate { throw TradingError.notConfigured }
     func placeOrder(_ order: OrderRequest) async throws -> OrderReceipt { throw TradingError.notConfigured }
     func cancelOrder(id: String) async throws { throw TradingError.notConfigured }
     func openOrders() async throws -> [OpenOrder] { [] }

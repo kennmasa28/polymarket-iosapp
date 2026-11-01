@@ -60,12 +60,13 @@ Polymarket の最新トピックスを表示し、興味のある条件に一致
 - **ロック**: ロック解除中だけ鍵をメモリに保持し、アプリがバックグラウンドに入ると自動でロックします
 - **署名**: 注文は端末内で EIP-712 署名します（secp256k1 は [bitcoin-core/secp256k1](https://github.com/bitcoin-core/secp256k1) v0.7.0 を `Trading/Crypto/libsecp256k1/` に同梱し、Keccak-256 と EIP-712 は自前実装）。秘密鍵は外部に送信しません
 - **API 認証**: 初回接続時に L1 署名で CLOB の API キーを作成/導出し、以降は HMAC（L2）ヘッダで発注・取消・残高照会を行います
-- **アカウント種別**: polymarket.com に MetaMask でログインしている場合は「Polymarket Safe」を選び、Polymarket の入金先アドレス（資金保有アドレス）を入力します。秘密鍵のアドレスで直接 USDC を持つ場合は「EOA」です（EOA の場合は事前にコントラクトへの approve が必要です）
-- **注文**: 指値（GTC）と成行（FOK、許容価格を指定）。送信前に確認ダイアログを表示します
+- **注文プロトコル**: CLOB V2（CTF Exchange v2 の EIP-712 `Order(salt, maker, signer, tokenId, makerAmount, takerAmount, side, signatureType, timestamp, metadata, builder)`）。公式 SDK [polymarket-client](https://github.com/Polymarket/py-sdk) と同じ手順です
+- **アカウント種別**: Polymarket の設定に表示されるアカウントのアドレス（資金保有アドレス）を入力すると、秘密鍵から CREATE2 で導出したアドレスと照合して EOA / プロキシ / Safe / デポジットウォレット（EIP-1271 署名）を自動判定します
+- **注文**: 成行（FAK。BUY は USDC 金額、SELL は株数で指定し、板から約定価格を算出）と指値（GTC）。送信前に板から見積もりを表示し、確認ダイアログを出します
 - **ポートフォリオタブ**: USDC 残高、保有ポジション（Data API）、未約定注文（スワイプで取消）
 
-注文の金額計算と署名は Polymarket 公式の `py-clob-client` / `py-order-utils` と同じ結果になることを、
-同ライブラリで生成した期待値でテストしています（`polymarket-iosappTests/TradingCryptoTests.swift`）。
+注文の金額計算・ウォレット判定・署名は公式 SDK（`polymarket-client`）と同じ結果になることを、
+SDK の手順と eth-account で生成した期待値でテストしています（`polymarket-iosappTests/TradingCryptoTests.swift`）。
 
 > 実際の資金が動きます。取引用には少額の専用ウォレットを使い、Polymarket の利用規約とお住まいの地域での利用可否を確認してください。
 

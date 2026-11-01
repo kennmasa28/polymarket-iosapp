@@ -60,32 +60,12 @@ nonisolated struct ClobPostOrderResponse: Decodable, Sendable {
 
 // MARK: - Response / request bodies
 
-nonisolated struct ClobTickSizeResponse: Decodable {
-    let value: Double?
-    enum CodingKeys: String, CodingKey { case value = "minimum_tick_size" }
-    init(from decoder: Decoder) throws {
-        value = try decoder.container(keyedBy: CodingKeys.self).decodeLossyDouble(forKey: .value)
-    }
-}
-
-nonisolated struct ClobNegRiskResponse: Decodable {
-    let negRisk: Bool?
-    enum CodingKeys: String, CodingKey { case negRisk = "neg_risk" }
-}
-
-nonisolated struct ClobFeeRateResponse: Decodable {
-    let baseFee: Double?
-    enum CodingKeys: String, CodingKey { case baseFee = "base_fee" }
-    init(from decoder: Decoder) throws {
-        baseFee = try decoder.container(keyedBy: CodingKeys.self).decodeLossyDouble(forKey: .baseFee)
-    }
-}
-
+/// V2 の `POST /order` ボディ（polymarket-client の _build_send_order_payload と同じ形）
 nonisolated struct ClobPostOrderBody: Encodable {
+    let deferExec: Bool
     let order: SignedClobOrder
-    let owner: String
     let orderType: String
-    let postOnly: Bool
+    let owner: String
 }
 
 nonisolated struct ClobOrdersPage: Decodable {
@@ -179,24 +159,12 @@ nonisolated struct ClobTradingClient: Sendable {
         }
     }
 
-    // MARK: Public market parameters
+    // MARK: Public market data
 
-    func tickSize(tokenId: String) async throws -> String {
-        let data = try await http.send("GET", url: try url("/tick-size", query: [.init(name: "token_id", value: tokenId)]))
-        let value = try decode(ClobTickSizeResponse.self, from: data).value ?? 0.01
-        // 0.01 のような数値を "0.01" に正規化
-        let candidates = ["0.1", "0.01", "0.001", "0.0001"]
-        return candidates.min { abs(Double($0)! - value) < abs(Double($1)! - value) } ?? "0.01"
-    }
-
-    func negRisk(tokenId: String) async throws -> Bool {
-        let data = try await http.send("GET", url: try url("/neg-risk", query: [.init(name: "token_id", value: tokenId)]))
-        return try decode(ClobNegRiskResponse.self, from: data).negRisk ?? false
-    }
-
-    func feeRateBps(tokenId: String) async throws -> Int {
-        let data = try await http.send("GET", url: try url("/fee-rate", query: [.init(name: "token_id", value: tokenId)]))
-        return Int(try decode(ClobFeeRateResponse.self, from: data).baseFee ?? 0)
+    /// 板（ティックサイズ・neg risk・最小注文数量も含む）
+    func orderBook(tokenId: String) async throws -> ClobOrderBook {
+        let data = try await http.send("GET", url: try url("/book", query: [.init(name: "token_id", value: tokenId)]))
+        return try decode(ClobOrderBook.self, from: data)
     }
 
     // MARK: L2
@@ -206,7 +174,8 @@ nonisolated struct ClobTradingClient: Sendable {
     ) async throws -> ClobPostOrderResponse {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
-        let body = try encoder.encode(ClobPostOrderBody(order: order, owner: credentials.apiKey, orderType: orderType.rawValue, postOnly: false))
+        let body = try encoder.encode(ClobPostOrderBody(
+            deferExec: false, order: order, orderType: orderType.rawValue, owner: credentials.apiKey))
         let bodyString = String(decoding: body, as: UTF8.self)
         let headers = try ClobAuthHeaders.level2(
             address: address, credentials: credentials, method: "POST", path: "/order", body: bodyString)

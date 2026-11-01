@@ -95,12 +95,20 @@ struct TradePanel: View {
 struct OrderTicketView: View {
     let draft: OrderDraft
 
+    private enum Mode: String, CaseIterable {
+        case market = "成行"
+        case limit = "指値"
+    }
+
     @Environment(AppServices.self) private var services
     @Environment(\.dismiss) private var dismiss
     @State private var side: OrderSide
-    @State private var orderType: OrderType = .gtc
-    @State private var priceCents: Double
-    @State private var shares: Double = 10
+    @State private var mode: Mode = .market
+    /// 成行 BUY: USDC / 成行 SELL・指値: 株数
+    @State private var size: Double = 5
+    @State private var limitPrice: Double
+    @State private var estimate: OrderEstimate?
+    @State private var estimateError: String?
     @State private var balance: Double?
     @State private var isSubmitting = false
     @State private var showConfirmation = false
@@ -110,14 +118,29 @@ struct OrderTicketView: View {
     init(draft: OrderDraft) {
         self.draft = draft
         _side = State(initialValue: draft.side)
-        _priceCents = State(initialValue: min(max(((draft.price ?? 0.5) * 100).rounded(), 1), 99))
+        _limitPrice = State(initialValue: min(max(((draft.price ?? 0.5) * 100).rounded() / 100, 0.01), 0.99))
     }
 
-    private var price: Double { priceCents / 100 }
-    private var estimatedCost: Double { price * shares }
+    private var request: OrderRequest? {
+        guard let tokenId = draft.tokenId, size > 0 else { return nil }
+        return OrderRequest(
+            tokenId: tokenId, side: side, type: mode == .market ? .fak : .gtc, size: size,
+            limitPrice: mode == .limit ? limitPrice : nil)
+    }
+
+    private var sizeLabel: String {
+        if mode == .market && side == .buy { return "支払額（USDC）" }
+        return side == .buy ? "購入株数" : "売却株数"
+    }
+
+    private var tick: Double { estimate?.tickSize ?? 0.01 }
 
     private var summary: String {
-        "\(draft.outcomeName) を \(String(format: "%.2f", shares))株 \(side.label)（\(orderType.label) \(Fmt.cents(price))、約 $\(String(format: "%.2f", estimatedCost))）"
+        guard let estimate else { return "" }
+        let action = side == .buy ? "買い" : "売り"
+        return String(
+            format: "%@ を %.2f 株 %@（%@ %.1f¢、約 $%.2f）",
+            draft.outcomeName, estimate.shares, action, mode.rawValue, estimate.price * 100, estimate.usdc)
     }
 
     var body: some View {
@@ -125,7 +148,9 @@ struct OrderTicketView: View {
             Section {
                 Text(draft.market.question).font(.subheadline)
                 LabeledContent("アウトカム", value: draft.outcomeName)
-                LabeledContent("現在価格", value: Fmt.cents(draft.price))
+                if let bid = estimate?.bestBid, let ask = estimate?.bestAsk {
+                    LabeledContent("買い気配 / 売り気配", value: "\(Fmt.cents(bid)) / \(Fmt.cents(ask))")
+                }
                 if let balance {
                     LabeledContent("USDC 残高", value: String(format: "$%.2f", balance))
                 }
@@ -136,27 +161,46 @@ struct OrderTicketView: View {
                     ForEach(OrderSide.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.segmented)
-                Picker("注文種別", selection: $orderType) {
-                    ForEach(OrderType.allCases, id: \.self) { Text($0.label).tag($0) }
+                Picker("注文方法", selection: $mode) {
+                    ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
-                Stepper(value: $priceCents, in: 1...99, step: 1) {
-                    LabeledContent(orderType == .gtc ? "指値" : (side == .buy ? "上限価格" : "下限価格")) {
-                        Text(String(format: "%.0f¢", priceCents)).monospacedDigit()
-                    }
-                }
-                LabeledContent("株数") {
-                    TextField("株数", value: $shares, format: .number)
+                .pickerStyle(.segmented)
+                LabeledContent(sizeLabel) {
+                    TextField(sizeLabel, value: $size, format: .number)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
                 }
-                LabeledContent(side == .buy ? "支払額（概算）" : "受取額（概算）", value: String(format: "$%.2f", estimatedCost))
-                if side == .buy {
-                    LabeledContent("的中時の受取", value: String(format: "$%.2f", shares))
+                if mode == .limit {
+                    Stepper(value: $limitPrice, in: tick...(1 - tick), step: tick) {
+                        LabeledContent("指値") {
+                            Text(String(format: "%.1f¢", limitPrice * 100)).monospacedDigit()
+                        }
+                    }
                 }
             } footer: {
-                Text(orderType == .gtc
-                    ? "指定価格で板に注文を出し、約定するまで残ります。"
-                    : "指定価格より不利にならない範囲で即時に全量約定させ、できなければ取り消されます。")
+                Text(mode == .market
+                    ? "板の注文に対して即時に約定させ、約定できなかった分は取り消します（FAK）。"
+                    : "指定価格で板に注文を出し、約定するまで残ります（GTC）。")
+            }
+
+            Section("見積もり") {
+                if let estimate {
+                    LabeledContent(mode == .market ? "約定見込み価格（最大）" : "価格", value: Fmt.cents(estimate.price))
+                    LabeledContent("株数", value: String(format: "%.2f", estimate.shares))
+                    LabeledContent(side == .buy ? "支払額" : "受取額", value: String(format: "$%.2f", estimate.usdc))
+                    if side == .buy {
+                        LabeledContent("的中時の受取", value: String(format: "$%.2f", estimate.shares))
+                    }
+                    if let minimum = estimate.minOrderSize, estimate.shares < minimum {
+                        Label(String(format: "最小注文数量は %.0f 株です", minimum), systemImage: "exclamationmark.triangle")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                } else if let estimateError {
+                    Text(estimateError).font(.footnote).foregroundStyle(.red)
+                } else {
+                    ProgressView()
+                }
             }
 
             if let resultMessage {
@@ -177,7 +221,7 @@ struct OrderTicketView: View {
                         Spacer()
                     }
                 }
-                .disabled(isSubmitting || shares <= 0 || draft.tokenId == nil || !services.trading.state.canTrade)
+                .disabled(isSubmitting || estimate == nil || request == nil || !services.trading.state.canTrade)
             }
         }
         .navigationTitle("注文")
@@ -193,15 +237,31 @@ struct OrderTicketView: View {
         .task {
             balance = try? await services.trading.collateralBalance()
         }
+        .task(id: "\(side.rawValue)|\(mode.rawValue)|\(size)|\(limitPrice)") {
+            await refreshEstimate()
+        }
+    }
+
+    private func refreshEstimate() async {
+        // 入力中の連続リクエストを避ける
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled, let request else { return }
+        do {
+            estimate = try await services.trading.estimate(request)
+            estimateError = nil
+        } catch {
+            if error.isCancellation { return }
+            estimate = nil
+            estimateError = error.localizedDescription
+        }
     }
 
     private func submit() async {
-        guard let tokenId = draft.tokenId else { return }
+        guard let request else { return }
         isSubmitting = true
         defer { isSubmitting = false }
         do {
-            let receipt = try await services.trading.placeOrder(OrderRequest(
-                tokenId: tokenId, side: side, price: price, size: shares, type: orderType))
+            let receipt = try await services.trading.placeOrder(request)
             succeeded = true
             resultMessage = "注文を受け付けました（\(receipt.status)）"
             balance = try? await services.trading.collateralBalance()

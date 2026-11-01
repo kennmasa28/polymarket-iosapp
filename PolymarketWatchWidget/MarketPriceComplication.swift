@@ -108,71 +108,145 @@ struct ComplicationView: View {
     @Environment(\.widgetFamily) private var family
     let entry: QuoteEntry
 
-    private var changeColor: Color {
-        guard let change = entry.quote?.dayChange else { return .secondary }
-        return change >= 0 ? .green : .red
-    }
-
     var body: some View {
         switch family {
-        case .accessoryCircular: circular
-        case .accessoryCorner: corner
-        case .accessoryInline: inline
-        default: rectangular
+        case .accessoryCircular: CircularComplication(entry: entry)
+        case .accessoryCorner: CornerComplication(entry: entry)
+        case .accessoryInline: InlineComplication(entry: entry)
+        default: RectangularComplication(entry: entry)
         }
     }
+}
 
-    @ViewBuilder
-    private var circular: some View {
+/// 24 時間の変化を ▲3.1 / ▼1.2 の形で表示
+private struct ChangeLabel: View {
+    let change: Double?
+
+    var body: some View {
+        if let change, abs(change) >= 0.0005 {
+            HStack(spacing: 1) {
+                Image(systemName: change > 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
+                    .imageScale(.small)
+                Text(String(format: "%.1f", abs(change) * 100))
+            }
+            .foregroundStyle(change > 0 ? Color.green : Color.red)
+        } else {
+            Text("±0").foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// モジュラー文字盤の中央など。タイトル / 確率 + 変化 / 確率バー の 3 段に収める
+private struct RectangularComplication: View {
+    let entry: QuoteEntry
+
+    var body: some View {
+        if let quote = entry.quote {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .imageScale(.small)
+                    Text(entry.title ?? quote.title)
+                        .lineLimit(1)
+                }
+                .font(.system(size: 13, weight: .semibold))
+                .widgetAccentable()
+
+                HStack(alignment: .firstTextBaseline, spacing: 0) {
+                    Text(String(format: "%.0f", quote.price * 100))
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text("%")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 6)
+                    ChangeLabel(change: quote.dayChange)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                }
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+
+                ProbabilityBar(value: quote.price)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Label("Polymarket", systemImage: "chart.line.uptrend.xyaxis")
+                    .font(.system(size: 13, weight: .semibold))
+                    .widgetAccentable()
+                Text("iPhone アプリで ☆ を付けたマーケットを表示します")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+    }
+}
+
+/// 確率を示す細いバー
+private struct ProbabilityBar: View {
+    let value: Double
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(.white.opacity(0.2))
+                Capsule()
+                    .fill(.tint)
+                    .frame(width: max(proxy.size.width * min(max(value, 0), 1), 3))
+                    .widgetAccentable()
+            }
+        }
+        .frame(height: 4)
+    }
+}
+
+private struct CircularComplication: View {
+    let entry: QuoteEntry
+
+    var body: some View {
         if let quote = entry.quote {
             Gauge(value: quote.price, in: 0...1) {
-                Text("Yes")
+                Image(systemName: (quote.dayChange ?? 0) >= 0 ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
             } currentValueLabel: {
-                Text("\(Int((quote.price * 100).rounded()))")
+                Text(String(format: "%.0f", quote.price * 100))
+                    .font(.system(.body, design: .rounded).weight(.semibold))
+                    .minimumScaleFactor(0.6)
             }
             .gaugeStyle(.accessoryCircular)
             .widgetAccentable()
         } else {
             Image(systemName: "chart.line.uptrend.xyaxis")
+                .font(.title3)
+                .widgetAccentable()
         }
     }
+}
 
-    private var corner: some View {
-        Text(entry.quote?.percentText ?? "—")
-            .font(.title3.monospacedDigit())
+private struct CornerComplication: View {
+    let entry: QuoteEntry
+
+    var body: some View {
+        Text(entry.quote.map { String(format: "%.0f%%", $0.price * 100) } ?? "—")
+            .font(.system(.title3, design: .rounded).weight(.semibold))
+            .minimumScaleFactor(0.6)
             .widgetLabel {
                 Text("\(entry.title ?? "Polymarket") \(entry.quote?.changeText ?? "")")
             }
     }
+}
 
-    private var inline: some View {
-        Text("\(entry.title ?? "Polymarket") \(entry.quote?.percentText ?? "—") \(entry.quote?.changeText ?? "")")
-    }
+private struct InlineComplication: View {
+    let entry: QuoteEntry
 
-    private var rectangular: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(entry.title ?? "お気に入りなし")
-                .font(.headline)
-                .lineLimit(1)
-                .widgetAccentable()
-            if let quote = entry.quote {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(quote.percentText)
-                        .font(.title2.monospacedDigit().weight(.semibold))
-                    Text("\(quote.changeText)pt")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(changeColor)
-                }
-                Text("24h · \(quote.updatedAt.formatted(date: .omitted, time: .shortened))")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("iPhone で ☆ を付けて追加")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+    var body: some View {
+        if let quote = entry.quote {
+            Text("\(entry.title ?? quote.title) \(quote.percentText) \(quote.changeText)")
+        } else {
+            Text("Polymarket")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

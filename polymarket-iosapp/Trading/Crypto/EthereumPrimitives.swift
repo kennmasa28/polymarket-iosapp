@@ -123,12 +123,17 @@ nonisolated enum EIP712Value {
     case address(String)
     case uint(String)
     case string(String)
+    /// 32 バイトの値（bytes32、または入れ子構造体の hashStruct）
+    case bytes32(Data)
 
     func encoded() throws -> Data {
         switch self {
         case .address(let value): return try ABI.address(value)
         case .uint(let value): return try ABI.uint256(value)
         case .string(let value): return Keccak256.hash(value)
+        case .bytes32(let value):
+            guard value.count == 32 else { throw EthereumError.invalidHex }
+            return value
         }
     }
 }
