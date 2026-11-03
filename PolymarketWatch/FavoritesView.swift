@@ -21,7 +21,9 @@ struct FavoritesView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(receiver.favorites) { favorite in
-                    QuoteRow(title: favorite.title, quote: quotes[favorite.id] ?? SharedStore.cachedQuote(for: favorite.id))
+                    QuoteRow(
+                        title: favorite.title, eventTitle: favorite.eventTitle,
+                        quote: quotes[favorite.id] ?? SharedStore.cachedQuote(for: favorite.id))
                 }
                 if let errorMessage {
                     Text(errorMessage).font(.footnote).foregroundStyle(.red)
@@ -55,10 +57,17 @@ struct FavoritesView: View {
 
 private struct QuoteRow: View {
     let title: String
+    let eventTitle: String?
     let quote: MarketQuote?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if let eventTitle {
+                Text(eventTitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
             Text(title).font(.headline).lineLimit(2)
             HStack(alignment: .firstTextBaseline) {
                 Text(quote?.percentText ?? "—").font(.title3.monospacedDigit().weight(.semibold))

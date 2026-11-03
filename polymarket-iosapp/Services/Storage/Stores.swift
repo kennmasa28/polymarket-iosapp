@@ -44,16 +44,34 @@ final class SettingsStore {
         value.favorites.contains { $0.id == marketId }
     }
 
-    func toggleFavorite(_ market: PMMarket) {
+    func toggleFavorite(_ market: PMMarket, eventTitle: String?) {
         if let index = value.favorites.firstIndex(where: { $0.id == market.id }) {
             value.favorites.remove(at: index)
         } else {
             value.favorites.append(FavoriteMarket(
                 id: market.id,
                 title: FavoriteMarket.shortTitle(from: market.displayName),
-                question: market.question))
+                question: market.question,
+                eventTitle: eventTitle ?? market.events.first?.title))
         }
         WatchSyncService.shared.send(favorites: value.favorites)
+    }
+
+    /// 以前に登録したお気に入りにイベント名を補完する（取得したマーケット情報から）
+    func backfillEventTitles(from markets: [String: PMMarket]) {
+        var changed = false
+        var favorites = value.favorites
+        for index in favorites.indices where favorites[index].eventTitle == nil {
+            guard let market = markets[favorites[index].id],
+                  let eventTitle = FavoriteMarket.distinctEventTitle(
+                      market.events.first?.title, question: favorites[index].question, title: favorites[index].title)
+            else { continue }
+            favorites[index].eventTitle = eventTitle
+            changed = true
+        }
+        guard changed else { return }
+        value.favorites = favorites
+        WatchSyncService.shared.send(favorites: favorites)
     }
 
     func removeFavorites(at offsets: IndexSet) {

@@ -22,11 +22,22 @@ nonisolated struct FavoriteMarket: Codable, Hashable, Identifiable, Sendable {
     /// 文字盤用の短い名前
     var title: String
     var question: String
+    /// 親イベント名（マーケット名と同じ・不明なら nil）。古いデータには無いので任意
+    var eventTitle: String?
 
-    init(id: String, title: String, question: String) {
+    init(id: String, title: String, question: String, eventTitle: String? = nil) {
         self.id = id
         self.title = title
         self.question = question
+        self.eventTitle = Self.distinctEventTitle(eventTitle, question: question, title: title)
+    }
+
+    /// マーケットの質問文と同じイベント名（単一マーケットのイベント）は表示しても冗長なので nil にする
+    static func distinctEventTitle(_ eventTitle: String?, question: String, title: String) -> String? {
+        guard let eventTitle = eventTitle?.trimmingCharacters(in: .whitespaces), !eventTitle.isEmpty,
+              eventTitle != question, eventTitle != title
+        else { return nil }
+        return eventTitle
     }
 
     /// 文字盤に収まるよう短くした名前
@@ -45,6 +56,8 @@ nonisolated struct FavoriteMarket: Codable, Hashable, Identifiable, Sendable {
 nonisolated struct MarketQuote: Codable, Hashable, Sendable {
     let marketId: String
     let title: String
+    /// 親イベント名（無ければ nil。古いキャッシュにも無い）
+    var eventTitle: String? = nil
     /// Yes 価格（0〜1）
     let price: Double
     /// 24時間の変化（確率ポイント）
@@ -60,7 +73,8 @@ nonisolated struct MarketQuote: Codable, Hashable, Sendable {
     }
 
     static let placeholder = MarketQuote(
-        marketId: "", title: "Bitcoin $150k", price: 0.62, dayChange: 0.031, updatedAt: .now)
+        marketId: "", title: "↑ $150,000", eventTitle: "What price will Bitcoin hit?",
+        price: 0.62, dayChange: 0.031, updatedAt: .now)
 }
 
 /// App Group の UserDefaults に保存するストア
@@ -151,7 +165,7 @@ nonisolated enum QuoteFetcher {
         let quotes = favorites.compactMap { favorite -> MarketQuote? in
             guard let market = byId[favorite.id], let price = market.outcomePrices.first else { return nil }
             return MarketQuote(
-                marketId: favorite.id, title: favorite.title, price: price,
+                marketId: favorite.id, title: favorite.title, eventTitle: favorite.eventTitle, price: price,
                 dayChange: market.oneDayPriceChange, updatedAt: now)
         }
         SharedStore.cacheQuotes(quotes)

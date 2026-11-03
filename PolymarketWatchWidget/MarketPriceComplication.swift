@@ -63,11 +63,12 @@ struct QuoteEntry: TimelineEntry {
     let date: Date
     let title: String?
     let quote: MarketQuote?
+    var eventTitle: String? = nil
 }
 
 struct QuoteProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> QuoteEntry {
-        QuoteEntry(date: .now, title: MarketQuote.placeholder.title, quote: .placeholder)
+        QuoteEntry(date: .now, title: MarketQuote.placeholder.title, quote: .placeholder, eventTitle: MarketQuote.placeholder.eventTitle)
     }
 
     func snapshot(for configuration: SelectMarketIntent, in context: Context) async -> QuoteEntry {
@@ -92,7 +93,9 @@ struct QuoteProvider: AppIntentTimelineProvider {
         let now = Date()
         let picks = Self.randomSequence(of: available, count: 4)
         let entries = picks.enumerated().map { index, quote in
-            QuoteEntry(date: now.addingTimeInterval(Double(index) * interval), title: quote.title, quote: quote)
+            QuoteEntry(
+                date: now.addingTimeInterval(Double(index) * interval), title: quote.title, quote: quote,
+                eventTitle: quote.eventTitle)
         }
         return Timeline(entries: entries, policy: .atEnd)
     }
@@ -125,7 +128,7 @@ struct QuoteProvider: AppIntentTimelineProvider {
             return QuoteEntry(date: .now, title: nil, quote: nil)
         }
         let quote = await quotes(for: [favorite]).first
-        return QuoteEntry(date: .now, title: favorite.title, quote: quote)
+        return QuoteEntry(date: .now, title: favorite.title, quote: quote, eventTitle: favorite.eventTitle)
     }
 
     /// 取得に失敗したマーケットは直近のキャッシュで補う
@@ -189,38 +192,45 @@ private struct ChangeLabel: View {
 }
 
 /// モジュラー文字盤の中央など。タイトル / 確率 + 変化 / 確率バー の 3 段に収める
+/// モジュラー文字盤の中央など。上下幅が限られるので
+/// イベント名（小）/ マーケット名 / 確率・変化・確率バー（横一列）の 3 段に収める
 private struct RectangularComplication: View {
     let entry: QuoteEntry
 
     var body: some View {
         if let quote = entry.quote {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 4) {
-                    Image(systemName: "chart.line.uptrend.xyaxis")
-                        .imageScale(.small)
-                    Text(entry.title ?? quote.title)
+            VStack(alignment: .leading, spacing: 0) {
+                if let eventTitle = entry.eventTitle ?? quote.eventTitle {
+                    Text(eventTitle)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
-                .font(.system(size: 13, weight: .semibold))
-                .widgetAccentable()
+                Text(entry.title ?? quote.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                    .widgetAccentable()
 
-                HStack(alignment: .firstTextBaseline, spacing: 0) {
-                    Text(String(format: "%.0f", quote.price * 100))
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
-                    Text("%")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 6)
+                Spacer(minLength: 0)
+
+                HStack(alignment: .center, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 0) {
+                        Text(String(format: "%.0f", quote.price * 100))
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                        Text("%")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .fixedSize()
                     ChangeLabel(change: quote.dayChange)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
+                        .font(.system(size: 12, weight: .semibold, design: .rounded).monospacedDigit())
+                        .fixedSize()
+                    ProbabilityBar(value: quote.price)
                 }
                 .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-
-                ProbabilityBar(value: quote.price)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .minimumScaleFactor(0.8)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         } else {
             VStack(alignment: .leading, spacing: 2) {
                 Label("Polymarket", systemImage: "chart.line.uptrend.xyaxis")

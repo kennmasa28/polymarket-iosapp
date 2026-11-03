@@ -110,6 +110,7 @@ struct FavoritesView: View {
         do {
             let fetched = try await services.gamma.markets(ids: ids)
             markets = Dictionary(fetched.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            settings.backfillEventTitles(from: markets)
             lastUpdated = .now
             errorMessage = nil
         } catch {

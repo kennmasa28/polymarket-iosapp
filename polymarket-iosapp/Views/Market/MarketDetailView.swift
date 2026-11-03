@@ -65,7 +65,7 @@ struct MarketDetailView: View {
             ToolbarItem(placement: .primaryAction) {
                 let isFavorite = settings.isFavorite(marketId: market.id)
                 Button {
-                    settings.toggleFavorite(market)
+                    settings.toggleFavorite(market, eventTitle: eventTitle)
                 } label: {
                     Label(isFavorite ? "お気に入りから外す" : "お気に入りに追加（Apple Watch に表示）",
                           systemImage: isFavorite ? "star.fill" : "star")
