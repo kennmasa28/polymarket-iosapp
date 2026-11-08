@@ -122,14 +122,14 @@ nonisolated struct DataAPI: Sendable {
     static let maxTradesPerRequest = 500
     var http = HTTPClient()
 
-    /// 指定マーケットの直近の約定（新しい順）
+    /// 指定マーケットの直近の約定（新しい順）。旧 `/trades` は廃止（410）されたので v2 を使う
     func trades(conditionId: String, limit: Int = DataAPI.maxTradesPerRequest) async throws -> [PMTrade] {
-        let result: [Lossy<PMTrade>] = try await http.get(
-            Self.baseURL, path: "trades",
+        let page: DataAPIPage<PMTrade> = try await http.get(
+            Self.baseURL, path: "v2/trades",
             query: [
-                .init(name: "market", value: conditionId),
+                .init(name: "condition_id", value: conditionId),
                 .init(name: "limit", value: String(limit)),
             ])
-        return result.compactMap(\.value)
+        return page.items
     }
 }

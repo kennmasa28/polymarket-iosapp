@@ -179,3 +179,41 @@ struct AnomalyDetectorTests {
         #expect(TraderActivity.compute(trades: trades, window: 3600, now: now, truncated: true) == nil)
     }
 }
+
+/// Data API v2（`/v2/positions`, `/v2/trades`）のページ形式
+struct DataAPIV2DecodingTests {
+    @Test func decodesPositionsPage() throws {
+        let json = #"""
+        {"data": [
+          {"proxy_wallet": "0xabc", "token_id": "111", "condition_id": "0xc1", "current_size": "12.5",
+           "avg_price": 0.41, "current_price": "0.55", "current_value": 6.875, "unrealized_pnl": "1.75",
+           "status": "OPEN", "title": "Will X happen?", "outcome": "Yes"},
+          {"proxy_wallet": "0xabc", "token_id": "222", "current_size": 0, "avg_price": 0.3,
+           "status": "CLOSED", "title": "Old", "outcome": "No"},
+          {"broken": true}
+         ],
+         "pagination": {"has_more": true, "next_cursor": "abc123"}}
+        """#
+        let page = try JSONDecoder().decode(DataAPIPage<PMPosition>.self, from: Data(json.utf8))
+        #expect(page.items.count == 2)
+        #expect(page.nextCursor == "abc123")
+        let position = try #require(page.items.first)
+        #expect(position.asset == "111")
+        #expect(position.size == 12.5)
+        #expect(position.avgPrice == 0.41)
+        #expect(position.curPrice == 0.55)
+        #expect(position.cashPnl == 1.75)
+        #expect(page.items[1].status == "CLOSED")
+    }
+
+    @Test func decodesTradesPageWithoutMore() throws {
+        let json = #"""
+        {"data": [{"proxy_wallet": "0xw1", "token_id": "1", "side": "BUY", "size": "3", "price": "0.5", "timestamp": 1700000000}],
+         "pagination": {"has_more": false, "next_cursor": null}}
+        """#
+        let page = try JSONDecoder().decode(DataAPIPage<PMTrade>.self, from: Data(json.utf8))
+        #expect(page.items.first?.proxyWallet == "0xw1")
+        #expect(page.items.first?.timestamp == 1_700_000_000)
+        #expect(page.nextCursor == nil)
+    }
+}

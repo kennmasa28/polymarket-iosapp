@@ -255,6 +255,31 @@ nonisolated enum PriceInterval: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Data API
+
+/// Data API v2 のページ形式 `{"data": [...], "pagination": {"has_more", "next_cursor"}}`
+nonisolated struct DataAPIPage<T: Decodable>: Decodable {
+    let items: [T]
+    let nextCursor: String?
+
+    private enum CodingKeys: String, CodingKey { case data, pagination }
+    private enum PaginationKeys: String, CodingKey {
+        case hasMore = "has_more"
+        case nextCursor = "next_cursor"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        items = try c.decode([Lossy<T>].self, forKey: .data).compactMap(\.value)
+        if let pagination = try? c.nestedContainer(keyedBy: PaginationKeys.self, forKey: .pagination),
+           (try? pagination.decode(Bool.self, forKey: .hasMore)) == true {
+            nextCursor = try? pagination.decode(String.self, forKey: .nextCursor)
+        } else {
+            nextCursor = nil
+        }
+    }
+}
+
 // MARK: - Data API: Trades
 
 nonisolated struct PMTrade: Decodable, Sendable {
@@ -265,7 +290,11 @@ nonisolated struct PMTrade: Decodable, Sendable {
     /// UNIX 秒
     let timestamp: Double
 
-    enum CodingKeys: String, CodingKey { case proxyWallet, side, size, price, timestamp }
+    /// v2（snake_case）と旧形式（camelCase）の両方に対応
+    enum CodingKeys: String, CodingKey {
+        case proxyWallet, side, size, price, timestamp
+        case proxyWalletV2 = "proxy_wallet"
+    }
 
     init(proxyWallet: String, timestamp: Double, side: String? = nil, size: Double? = nil, price: Double? = nil) {
         self.proxyWallet = proxyWallet
@@ -277,7 +306,11 @@ nonisolated struct PMTrade: Decodable, Sendable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        proxyWallet = try c.requireLossyString(forKey: .proxyWallet)
+        guard let wallet = c.decodeLossyString(forKey: .proxyWalletV2) ?? c.decodeLossyString(forKey: .proxyWallet) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.proxyWalletV2, .init(codingPath: c.codingPath, debugDescription: "missing proxy_wallet"))
+        }
+        proxyWallet = wallet
         side = c.decodeLossyString(forKey: .side)
         size = c.decodeLossyDouble(forKey: .size)
         price = c.decodeLossyDouble(forKey: .price)

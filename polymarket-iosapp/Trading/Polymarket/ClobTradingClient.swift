@@ -244,32 +244,53 @@ nonisolated struct PMPosition: Decodable, Identifiable, Sendable {
     let currentValue: Double?
     let cashPnl: Double?
     let conditionId: String?
+    /// OPEN / REDEEMABLE / CLOSED（v2 のみ）
+    let status: String?
 
     var id: String { asset }
 
+    /// v2（snake_case）を優先し、旧形式（camelCase）にもフォールバックする
     enum CodingKeys: String, CodingKey {
-        case asset, title, outcome, size, avgPrice, curPrice, currentValue, cashPnl, conditionId
+        case title, outcome, status
+        case tokenId = "token_id", currentSize = "current_size", avgPriceV2 = "avg_price"
+        case currentPrice = "current_price", currentValueV2 = "current_value"
+        case unrealizedPnl = "unrealized_pnl", conditionIdV2 = "condition_id"
+        case asset, size, avgPrice, curPrice, currentValue, cashPnl, conditionId
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        asset = try c.requireLossyString(forKey: .asset)
+        guard let asset = c.decodeLossyString(forKey: .tokenId) ?? c.decodeLossyString(forKey: .asset) else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.tokenId, .init(codingPath: c.codingPath, debugDescription: "missing token_id"))
+        }
+        self.asset = asset
         title = c.decodeLossyString(forKey: .title) ?? ""
         outcome = c.decodeLossyString(forKey: .outcome) ?? ""
-        size = c.decodeLossyDouble(forKey: .size) ?? 0
-        avgPrice = c.decodeLossyDouble(forKey: .avgPrice) ?? 0
-        curPrice = c.decodeLossyDouble(forKey: .curPrice)
-        currentValue = c.decodeLossyDouble(forKey: .currentValue)
-        cashPnl = c.decodeLossyDouble(forKey: .cashPnl)
-        conditionId = c.decodeLossyString(forKey: .conditionId)
+        size = c.decodeLossyDouble(forKey: .currentSize) ?? c.decodeLossyDouble(forKey: .size) ?? 0
+        avgPrice = c.decodeLossyDouble(forKey: .avgPriceV2) ?? c.decodeLossyDouble(forKey: .avgPrice) ?? 0
+        curPrice = c.decodeLossyDouble(forKey: .currentPrice) ?? c.decodeLossyDouble(forKey: .curPrice)
+        currentValue = c.decodeLossyDouble(forKey: .currentValueV2) ?? c.decodeLossyDouble(forKey: .currentValue)
+        cashPnl = c.decodeLossyDouble(forKey: .unrealizedPnl) ?? c.decodeLossyDouble(forKey: .cashPnl)
+        conditionId = c.decodeLossyString(forKey: .conditionIdV2) ?? c.decodeLossyString(forKey: .conditionId)
+        status = c.decodeLossyString(forKey: .status)
     }
 }
 
 nonisolated extension DataAPI {
+    /// 保有中のポジション。旧 `/positions` は廃止（410）されたので v2 を使い、カーソルでページングする
     func positions(user: String) async throws -> [PMPosition] {
-        let result: [Lossy<PMPosition>] = try await http.get(
-            Self.baseURL, path: "positions",
-            query: [.init(name: "user", value: user), .init(name: "sizeThreshold", value: "0.01")])
-        return result.compactMap(\.value)
+        var positions: [PMPosition] = []
+        var cursor: String?
+        for _ in 0..<5 {
+            var query: [URLQueryItem] = [.init(name: "user", value: user), .init(name: "limit", value: "500")]
+            if let cursor { query.append(.init(name: "cursor", value: cursor)) }
+            let page: DataAPIPage<PMPosition> = try await http.get(Self.baseURL, path: "v2/positions", query: query)
+            positions += page.items
+            guard let next = page.nextCursor else { break }
+            cursor = next
+        }
+        // 決済済み（CLOSED）や売り切ったものは除く
+        return positions.filter { $0.status?.uppercased() != "CLOSED" && $0.size >= 0.01 }
     }
 }

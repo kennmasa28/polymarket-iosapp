@@ -51,7 +51,7 @@ Polymarket の最新トピックスを表示し、興味のある条件に一致
 | --- | --- | --- |
 | Gamma | `https://gamma-api.polymarket.com` | `/events`, `/markets/{id}`, `/tags`, `/public-search` |
 | CLOB | `https://clob.polymarket.com` | `/prices-history`、取引（`/auth/*`, `/order`, `/data/orders`, `/balance-allowance` は認証付き） |
-| Data | `https://data-api.polymarket.com` | `/trades`（参加者数の推定）、`/positions` |
+| Data | `https://data-api.polymarket.com` | `/v2/trades`（参加者数の推定）、`/v2/positions` |
 
 ## 売買機能
 
