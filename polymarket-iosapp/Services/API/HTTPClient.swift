@@ -52,10 +52,12 @@ nonisolated struct HTTPClient: Sendable {
     }
 
     /// 任意のメソッド・ヘッダ・ボディで送信し、2xx 以外はレスポンス本文のエラーメッセージ付きで失敗させる
-    func send(_ method: String, url: URL, headers: [String: String] = [:], body: Data? = nil) async throws -> Data {
+    func send(
+        _ method: String, url: URL, headers: [String: String] = [:], body: Data? = nil, timeout: TimeInterval = 20
+    ) async throws -> Data {
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if body != nil {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -76,6 +78,10 @@ nonisolated struct HTTPClient: Sendable {
         if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             for key in ["error", "errorMsg", "message"] {
                 if let message = object[key] as? String, !message.isEmpty { return message }
+            }
+            // OpenAI 形式: {"error": {"message": "..."}}
+            if let error = object["error"] as? [String: Any], let message = error["message"] as? String, !message.isEmpty {
+                return message
             }
         }
         let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

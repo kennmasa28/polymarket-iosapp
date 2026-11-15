@@ -49,11 +49,16 @@ final class AppContainer {
     let snapshots = SnapshotStore()
     let router = AppRouter()
     let monitor: MarketMonitor
+    let agent: TradingAgent
 
     private var foregroundLoop: Task<Void, Never>?
 
     private init() {
         monitor = MarketMonitor(services: services, settings: settings, snapshots: snapshots, alerts: alerts)
+        agent = TradingAgent(services: services, settings: settings)
+        monitor.onAlertsFired = { [agent] records in
+            await agent.handle(alerts: records)
+        }
         WatchSyncService.shared.activate(favorites: settings.value.favorites)
     }
 

@@ -107,6 +107,20 @@ struct SettingsView: View {
                     Text("今後、MetaMask の秘密鍵を端末内に保存して売買できるようにする予定です。")
                 }
 
+                Section {
+                    NavigationLink {
+                        AgentSettingsView()
+                    } label: {
+                        LabeledContent(
+                            "AI エージェント",
+                            value: settings.value.agent.enabled ? "有効（\(settings.value.agent.mode.label)）" : "無効")
+                    }
+                } header: {
+                    Text("自動売買")
+                } footer: {
+                    Text("OpenAI の API キーを設定すると、急変アラートをきっかけに AI が売買を判断します。")
+                }
+
                 Section("データ") {
                     Button("アラート履歴を削除", role: .destructive) { alerts.removeAll() }
                     Button("価格履歴（スナップショット）を削除", role: .destructive) {

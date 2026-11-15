@@ -34,6 +34,8 @@ nonisolated struct KeychainItem: Sendable {
 
     static let privateKey = KeychainItem(
         service: "kengo.shibata.polymarket-iosapp.wallet", account: "privateKey", requiresUserPresence: true)
+    static let openAIKey = KeychainItem(
+        service: "kengo.shibata.polymarket-iosapp.agent", account: "openAIKey", requiresUserPresence: false)
     static let clobCredentials = KeychainItem(
         service: "kengo.shibata.polymarket-iosapp.wallet", account: "clobCredentials", requiresUserPresence: false)
 

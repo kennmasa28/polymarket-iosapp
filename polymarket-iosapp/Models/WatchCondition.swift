@@ -123,6 +123,8 @@ nonisolated struct AppSettings: Codable, Hashable, Sendable {
     var maxTraderChecksPerCycle = 25
     /// お気に入り（Apple Watch の文字盤に表示）
     var favorites: [FavoriteMarket] = []
+    /// AI エージェントによる自動売買
+    var agent = AgentSettings()
 
     static let pollIntervalChoices = [1, 2, 5, 10, 15, 30, 60]
 
@@ -139,5 +141,6 @@ nonisolated struct AppSettings: Codable, Hashable, Sendable {
         maxEventsPerCondition = (try? c.decodeIfPresent(Int.self, forKey: .maxEventsPerCondition)) ?? d.maxEventsPerCondition
         maxTraderChecksPerCycle = (try? c.decodeIfPresent(Int.self, forKey: .maxTraderChecksPerCycle)) ?? d.maxTraderChecksPerCycle
         favorites = (try? c.decodeIfPresent([FavoriteMarket].self, forKey: .favorites)) ?? d.favorites
+        agent = (try? c.decodeIfPresent(AgentSettings.self, forKey: .agent)) ?? d.agent
     }
 }

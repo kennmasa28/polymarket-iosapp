@@ -22,6 +22,7 @@ struct polymarket_iosappApp: App {
                 .environment(container.settings)
                 .environment(container.alerts)
                 .environment(container.monitor)
+                .environment(container.agent)
                 .environment(container.router)
         }
         .onChange(of: scenePhase) { _, phase in

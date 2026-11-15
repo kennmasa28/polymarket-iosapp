@@ -23,6 +23,9 @@ final class MarketMonitor {
     /// 条件 ID → 一致マーケット
     private(set) var marketsByCondition: [UUID: [MonitoredMarket]] = [:]
 
+    /// 新しく発火したアラートの通知先（AI エージェント）。AppContainer が設定する
+    @ObservationIgnored var onAlertsFired: (([AlertRecord]) async -> Void)?
+
     private let services: AppServices
     private let settings: SettingsStore
     private let snapshots: SnapshotStore
@@ -112,6 +115,9 @@ final class MarketMonitor {
             await NotificationService.deliver(fired)
         }
         lastSummary = "\(latest.count)件を監視・新規アラート\(fired.count)件"
+        if !fired.isEmpty, let onAlertsFired {
+            await onAlertsFired(fired)
+        }
     }
 
     /// 出来高上位から順に Data API で約定を取得し、ユニーク取引者数の急増を判定する

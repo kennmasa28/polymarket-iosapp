@@ -46,6 +46,20 @@ nonisolated enum NotificationService {
         }
     }
 
+    /// AI エージェントの判断結果
+    static func deliverAgent(_ entry: AgentLogEntry) async {
+        let content = UNMutableNotificationContent()
+        let mode = entry.mode == .paper ? "（シミュレーション）" : ""
+        content.title = "AI: \(entry.action.label)\(entry.outcome.map { " \($0)" } ?? "")｜\(entry.status.label)\(mode)"
+        content.subtitle = entry.question
+        content.body = entry.detail.isEmpty ? entry.reasoning : "\(entry.detail)\n\(entry.reasoning)"
+        content.sound = .default
+        content.threadIdentifier = "agent"
+        content.userInfo = [marketIdKey: entry.marketId]
+        try? await UNUserNotificationCenter.current().add(UNNotificationRequest(
+            identifier: entry.id.uuidString, content: content, trigger: nil))
+    }
+
     static func sendTest() async {
         let content = UNMutableNotificationContent()
         content.title = "テスト通知"
