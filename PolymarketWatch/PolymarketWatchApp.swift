@@ -10,8 +10,6 @@ import SwiftUI
 
 @main
 struct PolymarketWatchApp: App {
-    @State private var page = 0
-
     init() {
         // 通信キャッシュがメモリを圧迫しないよう小さくする（Watch はメモリ上限が厳しい）
         URLCache.shared = URLCache(memoryCapacity: 512 * 1024, diskCapacity: 5 * 1024 * 1024)
@@ -20,13 +18,9 @@ struct PolymarketWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            // デジタルクラウン/縦スワイプでお気に入りとトレンドを切り替える。
-            // トレンドは表示されたときに初めて読み込む（起動時のメモリと通信を抑える）
-            TabView(selection: $page) {
-                FavoritesView().tag(0)
-                TrendingView(isActive: page == 1).tag(1)
-            }
-            .tabViewStyle(.verticalPage)
+            // NavigationStack + List の単純な構成にする。縦ページ TabView の各ページに NavigationStack や
+            // ツールバーを置く構成は watchOS でレイアウト計算が終わらず、起動時に固まって強制終了していた
+            FavoritesView()
         }
     }
 }

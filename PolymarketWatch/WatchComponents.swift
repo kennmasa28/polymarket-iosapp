@@ -13,6 +13,11 @@ struct WatchMarketRoute: Hashable {
     let title: String
 }
 
+/// 一覧から開く画面
+enum WatchScreen: Hashable {
+    case trending
+}
+
 /// マーケット/イベントのアイコン画像（読み込み前はグレーの角丸）。
 /// AsyncImage は元画像をフルサイズで展開してメモリの少ない Watch では落ちる原因になるため、
 /// 表示サイズに縮小したサムネイルだけを作ってキャッシュする

@@ -33,19 +33,31 @@ struct FavoritesView: View {
                 if let errorMessage {
                     Text(errorMessage).font(.footnote).foregroundStyle(.red)
                 }
+                Section {
+                    NavigationLink(value: WatchScreen.trending) {
+                        Label("トレンド", systemImage: "flame")
+                    }
+                    if !receiver.favorites.isEmpty {
+                        Button {
+                            Task { await refresh() }
+                        } label: {
+                            HStack {
+                                Label("更新", systemImage: "arrow.clockwise")
+                                Spacer()
+                                if isLoading { ProgressView().frame(width: 20, height: 20) }
+                            }
+                        }
+                        .disabled(isLoading)
+                    }
+                }
             }
             .navigationTitle("お気に入り")
             .navigationDestination(for: WatchMarketRoute.self) { route in
                 MarketDetailView(route: route)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await refresh() }
-                    } label: {
-                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
-                    }
-                    .disabled(isLoading || receiver.favorites.isEmpty)
+            .navigationDestination(for: WatchScreen.self) { screen in
+                switch screen {
+                case .trending: TrendingView()
                 }
             }
             .task(id: receiver.favorites) { await refresh() }

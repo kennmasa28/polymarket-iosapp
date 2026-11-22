@@ -2,51 +2,41 @@
 //  TrendingView.swift
 //  PolymarketWatch
 //
-//  24 時間出来高の多いイベント（トレンド）。タップで代表マーケットの詳細を開く。
+//  24 時間出来高の多いマーケット（トレンド）。お気に入り一覧から開き、タップで詳細を開く。
 //
 
 import SwiftUI
 
 struct TrendingView: View {
-    /// このページが表示されているか（表示されるまで読み込まない）
-    var isActive = true
-
     @State private var items: [WatchTrendingItem] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
 
     var body: some View {
-        NavigationStack {
-            List {
-                if items.isEmpty && isLoading {
-                    ProgressView()
-                }
-                ForEach(items) { item in
-                    NavigationLink(value: WatchMarketRoute(marketId: item.marketId, title: item.marketTitle ?? item.eventTitle)) {
-                        TrendingRow(item: item)
-                    }
-                }
-                if let errorMessage {
-                    Text(errorMessage).font(.footnote).foregroundStyle(.red)
+        List {
+            if items.isEmpty && isLoading {
+                ProgressView()
+            }
+            ForEach(items) { item in
+                NavigationLink(value: WatchMarketRoute(marketId: item.marketId, title: item.marketTitle ?? item.eventTitle)) {
+                    TrendingRow(item: item)
                 }
             }
-            .navigationTitle("トレンド")
-            .navigationDestination(for: WatchMarketRoute.self) { route in
-                MarketDetailView(route: route)
+            if let errorMessage {
+                Text(errorMessage).font(.footnote).foregroundStyle(.red)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await load() }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(isLoading)
+            if !items.isEmpty {
+                Button {
+                    Task { await load() }
+                } label: {
+                    Label("更新", systemImage: "arrow.clockwise")
                 }
+                .disabled(isLoading)
             }
-            .task(id: isActive) {
-                if isActive && items.isEmpty { await load() }
-            }
+        }
+        .navigationTitle("トレンド")
+        .task {
+            if items.isEmpty { await load() }
         }
     }
 
