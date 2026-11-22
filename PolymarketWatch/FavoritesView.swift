@@ -27,9 +27,7 @@ struct FavoritesView: View {
                 }
                 ForEach(receiver.favorites) { favorite in
                     NavigationLink(value: WatchMarketRoute(marketId: favorite.id, title: favorite.title)) {
-                        FavoriteRow(
-                            favorite: favorite,
-                            quote: quotes[favorite.id] ?? SharedStore.cachedQuote(for: favorite.id))
+                        FavoriteRow(favorite: favorite, quote: quotes[favorite.id])
                     }
                 }
                 if let errorMessage {
@@ -56,6 +54,10 @@ struct FavoritesView: View {
 
     private func refresh() async {
         guard !receiver.favorites.isEmpty else { return }
+        // 通信前に前回の価格を表示する（描画のたびに UserDefaults を読まないよう、ここで 1 回だけ読む）
+        for favorite in receiver.favorites where quotes[favorite.id] == nil {
+            quotes[favorite.id] = SharedStore.cachedQuote(for: favorite.id)
+        }
         isLoading = true
         defer { isLoading = false }
         do {
