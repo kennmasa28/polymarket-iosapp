@@ -143,39 +143,24 @@ struct WatchTrendingItem: Identifiable, Sendable {
     let volume24h: Double?
 }
 
-private struct WatchEvent: Decodable {
-    let id: String
-    let title: String
-    let imageURL: String?
-    let volume24h: Double?
-    let markets: [WatchEventMarket]
-
-    private enum CodingKeys: String, CodingKey { case id, title, icon, image, volume24hr, markets }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        guard let id = c.watchString(.id) else {
-            throw DecodingError.keyNotFound(CodingKeys.id, .init(codingPath: c.codingPath, debugDescription: "id"))
-        }
-        self.id = id
-        title = c.watchString(.title) ?? ""
-        imageURL = c.watchString(.icon) ?? c.watchString(.image)
-        volume24h = c.watchDouble(.volume24hr)
-        markets = ((try? c.decodeIfPresent([WatchFailable<WatchEventMarket>].self, forKey: .markets)) ?? [])
-            .compactMap(\.value)
-    }
-}
-
-private struct WatchEventMarket: Decodable {
+/// トレンド用のマーケット（Gamma `/markets`）。イベント配下の全マーケットを含む `/events` より
+/// レスポンスがずっと小さいので、メモリの少ない Watch ではこちらを使う
+private struct WatchTrendMarket: Decodable {
     let id: String
     let question: String
     let groupItemTitle: String?
+    let eventTitle: String?
+    let imageURL: String?
     let price: Double?
     let dayChange: Double?
-    let isOpen: Bool
+    let volume24h: Double?
 
     private enum CodingKeys: String, CodingKey {
-        case id, question, groupItemTitle, outcomePrices, oneDayPriceChange, active, closed
+        case id, question, groupItemTitle, outcomePrices, oneDayPriceChange, icon, image, volume24hr, events
+    }
+
+    private struct EventSummary: Decodable {
+        let title: String?
     }
 
     init(from decoder: Decoder) throws {
@@ -186,11 +171,12 @@ private struct WatchEventMarket: Decodable {
         self.id = id
         question = c.watchString(.question) ?? ""
         groupItemTitle = c.watchString(.groupItemTitle).flatMap { $0.isEmpty ? nil : $0 }
+        eventTitle = ((try? c.decodeIfPresent([WatchFailable<EventSummary>].self, forKey: .events)) ?? [])
+            .compactMap(\.value).first?.title
+        imageURL = c.watchString(.icon) ?? c.watchString(.image)
         price = c.watchStrings(.outcomePrices).compactMap(Double.init).first
         dayChange = c.watchDouble(.oneDayPriceChange)
-        let active = (try? c.decodeIfPresent(Bool.self, forKey: .active)) ?? true
-        let closed = (try? c.decodeIfPresent(Bool.self, forKey: .closed)) ?? false
-        isOpen = active && !closed
+        volume24h = c.watchDouble(.volume24hr)
     }
 }
 
@@ -225,25 +211,27 @@ enum WatchAPI {
         return response.history
     }
 
-    /// 24h 出来高上位のイベントと、その代表マーケット（最も確率の高いもの）
-    static func trending(limit: Int = 15) async throws -> [WatchTrendingItem] {
-        let events: [WatchFailable<WatchEvent>] = try await get(gamma, "events", [
+    /// 24h 出来高上位のマーケット。同じイベントのマーケットは出来高が最大のもの 1 件にまとめる
+    static func trending(limit: Int = 12) async throws -> [WatchTrendingItem] {
+        let markets: [WatchFailable<WatchTrendMarket>] = try await get(gamma, "markets", [
             URLQueryItem(name: "active", value: "true"),
             URLQueryItem(name: "closed", value: "false"),
             URLQueryItem(name: "order", value: "volume24hr"),
             URLQueryItem(name: "ascending", value: "false"),
-            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "limit", value: String(limit * 2)),
         ])
-        return events.compactMap(\.value).compactMap { event in
-            let open = event.markets.filter(\.isOpen)
-            let candidates = open.isEmpty ? event.markets : open
-            guard let leading = candidates.max(by: { ($0.price ?? 0) < ($1.price ?? 0) }) else { return nil }
-            let multiple = event.markets.count > 1
-            return WatchTrendingItem(
-                id: event.id, marketId: leading.id, eventTitle: event.title,
-                marketTitle: multiple ? (leading.groupItemTitle ?? leading.question) : nil,
-                imageURL: event.imageURL, price: leading.price, dayChange: leading.dayChange,
-                volume24h: event.volume24h)
+        var seenEvents = Set<String>()
+        var items: [WatchTrendingItem] = []
+        for market in markets.compactMap(\.value) {
+            let eventTitle = market.eventTitle ?? market.question
+            guard seenEvents.insert(eventTitle).inserted else { continue }
+            items.append(WatchTrendingItem(
+                id: market.id, marketId: market.id, eventTitle: eventTitle,
+                marketTitle: eventTitle == market.question ? nil : (market.groupItemTitle ?? market.question),
+                imageURL: market.imageURL, price: market.price, dayChange: market.dayChange,
+                volume24h: market.volume24h))
+            if items.count >= limit { break }
         }
+        return items
     }
 }

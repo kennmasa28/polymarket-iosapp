@@ -3,7 +3,9 @@
 //  PolymarketWatch
 //
 
+import ImageIO
 import SwiftUI
+import UIKit
 
 /// 詳細画面への遷移先
 struct WatchMarketRoute: Hashable {
@@ -11,21 +13,66 @@ struct WatchMarketRoute: Hashable {
     let title: String
 }
 
-/// マーケット/イベントのアイコン画像（読み込み前はグレーの丸）
+/// マーケット/イベントのアイコン画像（読み込み前はグレーの角丸）。
+/// AsyncImage は元画像をフルサイズで展開してメモリの少ない Watch では落ちる原因になるため、
+/// 表示サイズに縮小したサムネイルだけを作ってキャッシュする
 struct MarketIcon: View {
     let urlString: String?
     var size: CGFloat = 28
 
+    @State private var image: UIImage?
+
     var body: some View {
-        AsyncImage(url: urlString.flatMap { URL(string: $0) }) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
             } else {
                 Color.gray.opacity(0.3)
             }
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: size * 0.25))
+        .task(id: urlString) {
+            image = await ThumbnailLoader.shared.thumbnail(for: urlString, maxPixelSize: Int(size * 2))
+        }
+    }
+}
+
+/// 縮小済みサムネイルの読み込みとキャッシュ（件数上限つき）
+actor ThumbnailLoader {
+    static let shared = ThumbnailLoader()
+
+    private var cache: [String: UIImage] = [:]
+    private var order: [String] = []
+    private let limit = 40
+
+    func thumbnail(for urlString: String?, maxPixelSize: Int) async -> UIImage? {
+        guard let urlString, let url = URL(string: urlString) else { return nil }
+        let key = "\(maxPixelSize)|\(urlString)"
+        if let cached = cache[key] { return cached }
+        guard let result = try? await URLSession.shared.data(from: url),
+              let image = Self.downsample(result.0, maxPixelSize: maxPixelSize)
+        else { return nil }
+        cache[key] = image
+        order.append(key)
+        if order.count > limit {
+            cache[order.removeFirst()] = nil
+        }
+        return image
+    }
+
+    /// フル解像度で展開せずに縮小画像を作る
+    private static func downsample(_ data: Data, maxPixelSize: Int) -> UIImage? {
+        let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return UIImage(cgImage: cgImage)
     }
 }
 
