@@ -150,21 +150,21 @@ struct ChangeText: View {
     }
 }
 
-/// 確率を示す細いバー
+/// 確率を示す細いバー。リストの行ごとに GeometryReader を使うとレイアウト計算が重くなるので、
+/// 幅に依存しない scaleEffect で塗りの長さを表す
 struct ProbabilityBar: View {
     let value: Double
     var color: Color = .accentColor
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.15))
+        Capsule()
+            .fill(Color.white.opacity(0.15))
+            .overlay(alignment: .leading) {
                 Capsule()
                     .fill(color)
-                    .frame(width: max(proxy.size.width * min(max(value, 0), 1), 3))
+                    .scaleEffect(x: max(min(value, 1), 0.02), y: 1, anchor: .leading)
             }
-        }
-        .frame(height: 4)
+            .frame(height: 4)
     }
 }
 

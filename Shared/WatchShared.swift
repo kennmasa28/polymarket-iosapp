@@ -84,7 +84,8 @@ nonisolated enum SharedStore {
     private static let favoritesKey = "favorites"
     private static let quotesKey = "quotes"
 
-    private static var defaults: UserDefaults? { UserDefaults(suiteName: WatchShared.appGroup) }
+    /// 呼び出しのたびに作り直すと cfprefsd との通信が発生して遅いので 1 つを使い回す
+    private static let defaults: UserDefaults? = UserDefaults(suiteName: WatchShared.appGroup)
 
     static func favorites() -> [FavoriteMarket] {
         guard let data = defaults?.data(forKey: favoritesKey) else { return [] }
@@ -97,10 +98,15 @@ nonisolated enum SharedStore {
 
     /// 通信できないときに表示する直近の価格
     static func cachedQuote(for marketId: String) -> MarketQuote? {
+        cachedQuotes()[marketId]
+    }
+
+    /// 保存済みの価格をまとめて読む（JSON の解析は 1 回で済ませる。UI スレッドの描画中には呼ばないこと）
+    static func cachedQuotes() -> [String: MarketQuote] {
         guard let data = defaults?.data(forKey: quotesKey),
               let quotes = try? JSONDecoder().decode([String: MarketQuote].self, from: data)
-        else { return nil }
-        return quotes[marketId]
+        else { return [:] }
+        return quotes
     }
 
     static func cacheQuotes(_ newQuotes: [MarketQuote]) {

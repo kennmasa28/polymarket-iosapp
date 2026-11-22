@@ -14,9 +14,14 @@ import WidgetKit
 final class WatchSessionReceiver: NSObject, WCSessionDelegate {
     static let shared = WatchSessionReceiver()
 
-    private(set) var favorites: [FavoriteMarket] = SharedStore.favorites()
+    /// 起動直後の描画をふさがないよう、保存済みのお気に入りは activate() でメインスレッド外から読む
+    private(set) var favorites: [FavoriteMarket] = []
 
     func activate() {
+        Task {
+            let saved = await Task.detached(priority: .userInitiated) { SharedStore.favorites() }.value
+            if favorites.isEmpty && !saved.isEmpty { favorites = saved }
+        }
         guard WCSession.isSupported() else { return }
         WCSession.default.delegate = self
         WCSession.default.activate()
