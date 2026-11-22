@@ -8,6 +8,9 @@
 import SwiftUI
 
 struct TrendingView: View {
+    /// このページが表示されているか（表示されるまで読み込まない）
+    var isActive = true
+
     @State private var items: [WatchTrendingItem] = []
     @State private var errorMessage: String?
     @State private var isLoading = false
@@ -41,7 +44,9 @@ struct TrendingView: View {
                     .disabled(isLoading)
                 }
             }
-            .task { await load() }
+            .task(id: isActive) {
+                if isActive && items.isEmpty { await load() }
+            }
         }
     }
 

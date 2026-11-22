@@ -38,33 +38,89 @@ struct MarketIcon: View {
     }
 }
 
-/// 縮小済みサムネイルの読み込みとキャッシュ（件数上限つき）
+/// 縮小済みサムネイルの読み込みとキャッシュ。メモリの少ない Watch 向けに
+/// - 画像はファイルにダウンロードし、ImageIO でディスクから直接縮小する（元データをメモリに載せない）
+/// - URL キャッシュを使わない専用セッション、同時ダウンロードは 2 件まで
+/// - 大きすぎる画像は読み込まない、キャッシュは件数上限つき
 actor ThumbnailLoader {
     static let shared = ThumbnailLoader()
 
+    private static let maxConcurrentDownloads = 2
+    private static let maxDownloadBytes: Int64 = 2_000_000
+    private static let cacheLimit = 30
+
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.httpMaximumConnectionsPerHost = 2
+        configuration.timeoutIntervalForRequest = 15
+        return URLSession(configuration: configuration)
+    }()
+
     private var cache: [String: UIImage] = [:]
     private var order: [String] = []
-    private let limit = 40
+    private var failed = Set<String>()
+    private var running = 0
+    private var waiters: [CheckedContinuation<Void, Never>] = []
 
     func thumbnail(for urlString: String?, maxPixelSize: Int) async -> UIImage? {
         guard let urlString, let url = URL(string: urlString) else { return nil }
         let key = "\(maxPixelSize)|\(urlString)"
         if let cached = cache[key] { return cached }
-        guard let result = try? await URLSession.shared.data(from: url),
-              let image = Self.downsample(result.0, maxPixelSize: maxPixelSize)
-        else { return nil }
+        if failed.contains(key) { return nil }
+
+        await acquire()
+        defer { release() }
+        // 待っている間に別の呼び出しが読み込んでいれば再利用
+        if let cached = cache[key] { return cached }
+        if Task.isCancelled { return nil }
+
+        guard let image = await download(url, maxPixelSize: maxPixelSize) else {
+            failed.insert(key)
+            return nil
+        }
         cache[key] = image
         order.append(key)
-        if order.count > limit {
+        if order.count > Self.cacheLimit {
             cache[order.removeFirst()] = nil
         }
         return image
     }
 
+    private func download(_ url: URL, maxPixelSize: Int) async -> UIImage? {
+        guard let result = try? await session.download(from: url) else { return nil }
+        let (fileURL, response) = result
+        defer { try? FileManager.default.removeItem(at: fileURL) }
+        if response.expectedContentLength > Self.maxDownloadBytes { return nil }
+        if let size = (try? FileManager.default.attributesOfItem(atPath: fileURL.path)[.size]) as? Int64,
+           size > Self.maxDownloadBytes {
+            return nil
+        }
+        return Self.downsample(fileURL, maxPixelSize: maxPixelSize)
+    }
+
+    private func acquire() async {
+        if running < Self.maxConcurrentDownloads {
+            running += 1
+            return
+        }
+        // 枠が空くまで待つ（release で running を引き継ぐ）
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            running -= 1
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+
     /// フル解像度で展開せずに縮小画像を作る
-    private static func downsample(_ data: Data, maxPixelSize: Int) -> UIImage? {
+    private static func downsample(_ fileURL: URL, maxPixelSize: Int) -> UIImage? {
         let sourceOptions: [CFString: Any] = [kCGImageSourceShouldCache: false]
-        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else { return nil }
+        guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, sourceOptions as CFDictionary) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
