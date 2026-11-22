@@ -2,6 +2,8 @@
 //  FavoritesView.swift
 //  PolymarketWatch
 //
+//  iPhone で ☆ を付けたマーケットの一覧。タップで詳細（グラフ付き）を開く。
+//
 
 import SwiftUI
 
@@ -16,33 +18,44 @@ struct FavoritesView: View {
         NavigationStack {
             List {
                 if receiver.favorites.isEmpty {
-                    Text("iPhone アプリのマーケット詳細で ☆ を付けると、ここと文字盤に表示されます。")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Image(systemName: "star").font(.title3).foregroundStyle(.yellow)
+                        Text("iPhone アプリのマーケット詳細で ☆ を付けると、ここと文字盤に表示されます。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 ForEach(receiver.favorites) { favorite in
-                    QuoteRow(
-                        title: favorite.title, eventTitle: favorite.eventTitle,
-                        quote: quotes[favorite.id] ?? SharedStore.cachedQuote(for: favorite.id))
+                    NavigationLink(value: WatchMarketRoute(marketId: favorite.id, title: favorite.title)) {
+                        FavoriteRow(
+                            favorite: favorite,
+                            quote: quotes[favorite.id] ?? SharedStore.cachedQuote(for: favorite.id))
+                    }
                 }
                 if let errorMessage {
                     Text(errorMessage).font(.footnote).foregroundStyle(.red)
                 }
-                if !receiver.favorites.isEmpty {
+            }
+            .navigationTitle("お気に入り")
+            .navigationDestination(for: WatchMarketRoute.self) { route in
+                MarketDetailView(route: route)
+            }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await refresh() }
                     } label: {
-                        if isLoading { ProgressView() } else { Label("更新", systemImage: "arrow.clockwise") }
+                        if isLoading { ProgressView() } else { Image(systemName: "arrow.clockwise") }
                     }
-                    .disabled(isLoading)
+                    .disabled(isLoading || receiver.favorites.isEmpty)
                 }
             }
-            .navigationTitle("Polymarket")
             .task(id: receiver.favorites) { await refresh() }
         }
     }
 
     private func refresh() async {
+        guard !receiver.favorites.isEmpty else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -55,29 +68,37 @@ struct FavoritesView: View {
     }
 }
 
-private struct QuoteRow: View {
-    let title: String
-    let eventTitle: String?
+private struct FavoriteRow: View {
+    let favorite: FavoriteMarket
     let quote: MarketQuote?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if let eventTitle {
-                Text(eventTitle)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-            Text(title).font(.headline).lineLimit(2)
-            HStack(alignment: .firstTextBaseline) {
-                Text(quote?.percentText ?? "—").font(.title3.monospacedDigit().weight(.semibold))
-                Spacer()
-                if let quote, let change = quote.dayChange {
-                    Text(quote.changeText)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(change >= 0 ? Color.green : Color.red)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .top, spacing: 6) {
+                MarketIcon(urlString: quote?.imageURL, size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    if let eventTitle = favorite.eventTitle {
+                        Text(eventTitle)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Text(favorite.title)
+                        .font(.footnote.weight(.semibold))
+                        .lineLimit(2)
                 }
             }
+            HStack(alignment: .firstTextBaseline) {
+                Text(WatchFormat.percent(quote?.price))
+                    .font(.system(.title3, design: .rounded).weight(.bold).monospacedDigit())
+                Spacer()
+                ChangeText(change: quote?.dayChange)
+                    .font(.caption.monospacedDigit())
+            }
+            if let price = quote?.price {
+                ProbabilityBar(value: price)
+            }
         }
+        .padding(.vertical, 2)
     }
 }

@@ -2,7 +2,7 @@
 //  PolymarketWatchApp.swift
 //  PolymarketWatch
 //
-//  iPhone でお気に入りに追加したマーケットの価格を表示する Watch アプリ。
+//  iPhone でお気に入りに追加したマーケットとトレンドを表示する Watch アプリ（詳細・グラフ付き）。
 //  主な役割は、iPhone から届いたお気に入りを App Group に保存して文字盤のコンプリケーションに渡すこと。
 //
 
@@ -16,7 +16,12 @@ struct PolymarketWatchApp: App {
 
     var body: some Scene {
         WindowGroup {
-            FavoritesView()
+            // デジタルクラウン/縦スワイプでお気に入りとトレンドを切り替える
+            TabView {
+                FavoritesView()
+                TrendingView()
+            }
+            .tabViewStyle(.verticalPage)
         }
     }
 }

@@ -43,23 +43,34 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         return true
     }
 
+    // 通知デリゲートは UNUserNotificationCenter が自前のバックグラウンドキューから呼ぶ。
+    // このターゲットは既定で MainActor 隔離（SWIFT_DEFAULT_ACTOR_ISOLATION）かつ
+    // nonisolated(nonsending) が既定（SWIFT_APPROACHABLE_CONCURRENCY）のため、async 版のデリゲートは
+    // Objective-C からのブリッジで実行スレッドの前提が崩れ、通知タップ時にクラッシュし得る。
+    // そこで completionHandler 版を nonisolated で実装し、必要な値だけ取り出して明示的にメインへ渡す。
+
     /// アプリ表示中もバナーを出す
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        willPresent notification: UNNotification
-    ) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .list, .sound])
     }
 
     /// 通知タップでマーケット詳細を開く
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
-        didReceive response: UNNotificationResponse
-    ) async {
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let marketId = response.notification.request.content.userInfo[NotificationService.marketIdKey] as? String
-        guard let marketId else { return }
-        await MainActor.run {
-            AppContainer.shared.router.openMarket(id: marketId)
+        completionHandler()
+        guard let marketId, !marketId.isEmpty else { return }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                AppContainer.shared.router.openMarket(id: marketId)
+            }
         }
     }
 }

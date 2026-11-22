@@ -63,6 +63,8 @@ nonisolated struct MarketQuote: Codable, Hashable, Sendable {
     /// 24時間の変化（確率ポイント）
     let dayChange: Double?
     let updatedAt: Date
+    /// マーケットのアイコン画像（古いキャッシュには無い）
+    var imageURL: String? = nil
 
     var percentText: String { String(format: "%.0f%%", price * 100) }
 
@@ -116,8 +118,9 @@ private nonisolated struct GammaQuoteMarket: Decodable {
     let id: String
     let outcomePrices: [Double]
     let oneDayPriceChange: Double?
+    let imageURL: String?
 
-    enum CodingKeys: String, CodingKey { case id, outcomePrices, oneDayPriceChange }
+    enum CodingKeys: String, CodingKey { case id, outcomePrices, oneDayPriceChange, icon, image }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -134,6 +137,7 @@ private nonisolated struct GammaQuoteMarket: Decodable {
             outcomePrices = ((try? c.decode([String].self, forKey: .outcomePrices)) ?? []).compactMap(Double.init)
         }
         oneDayPriceChange = try? c.decode(Double.self, forKey: .oneDayPriceChange)
+        imageURL = (try? c.decode(String.self, forKey: .icon)) ?? (try? c.decode(String.self, forKey: .image))
     }
 }
 
@@ -166,7 +170,7 @@ nonisolated enum QuoteFetcher {
             guard let market = byId[favorite.id], let price = market.outcomePrices.first else { return nil }
             return MarketQuote(
                 marketId: favorite.id, title: favorite.title, eventTitle: favorite.eventTitle, price: price,
-                dayChange: market.oneDayPriceChange, updatedAt: now)
+                dayChange: market.oneDayPriceChange, updatedAt: now, imageURL: market.imageURL)
         }
         SharedStore.cacheQuotes(quotes)
         return quotes
